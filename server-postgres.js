@@ -6,6 +6,11 @@ const cors = require("cors");
 const app = express();
 const PORT = 3000;
 
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
+});
+
 app.use(cors());
 app.use(express.json());
 async function initDatabase() {
