@@ -4,7 +4,7 @@ const bcrypt = require("bcryptjs");
 const cors = require("cors");
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -13,57 +13,128 @@ const pool = new Pool({
 
 app.use(cors());
 app.use(express.json());
+
 async function initDatabase() {
-  await pool.query(`CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT UNIQUE NOT NULL, phone TEXT, password TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'customer', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`);
 
-  await pool.query(`CREATE TABLE IF NOT EXISTS products (id SERIAL PRIMARY KEY, name TEXT NOT NULL, price INTEGER NOT NULL, category TEXT NOT NULL, emoji TEXT, description TEXT, image TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            phone TEXT,
+            password TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'customer',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
 
-  await pool.query(`CREATE TABLE IF NOT EXISTS orders (id SERIAL PRIMARY KEY, order_number TEXT UNIQUE NOT NULL, user_id INTEGER, customer_name TEXT NOT NULL, customer_email TEXT, customer_phone TEXT, delivery_address TEXT, city TEXT, total INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'Order Received', payment_method TEXT, payment_status TEXT NOT NULL DEFAULT 'Payment Pending', payment_reference TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS products (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            price INTEGER NOT NULL,
+            category TEXT NOT NULL,
+            emoji TEXT,
+            description TEXT,
+            image TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
 
-  await pool.query(`CREATE TABLE IF NOT EXISTS order_items (id SERIAL PRIMARY KEY, order_id INTEGER NOT NULL, product_id INTEGER, product_name TEXT NOT NULL, price INTEGER NOT NULL, quantity INTEGER NOT NULL, FOREIGN KEY(order_id) REFERENCES orders(id), FOREIGN KEY(product_id) REFERENCES products(id))`);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS orders (
+            id SERIAL PRIMARY KEY,
+            order_number TEXT UNIQUE NOT NULL,
+            user_id INTEGER,
+            customer_name TEXT NOT NULL,
+            customer_email TEXT,
+            customer_phone TEXT,
+            delivery_address TEXT,
+            city TEXT,
+            total INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'Order Received',
+            payment_method TEXT,
+            payment_status TEXT NOT NULL DEFAULT 'Payment Pending',
+            payment_reference TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
 
-  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_address TEXT`);
-  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS city TEXT`);
-  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status TEXT NOT NULL DEFAULT 'Payment Pending'`);
-  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_reference TEXT`);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS order_items (
+            id SERIAL PRIMARY KEY,
+            order_id INTEGER NOT NULL,
+            product_id INTEGER,
+            product_name TEXT NOT NULL,
+            price INTEGER NOT NULL,
+            quantity INTEGER NOT NULL,
+            FOREIGN KEY(order_id) REFERENCES orders(id),
+            FOREIGN KEY(product_id) REFERENCES products(id)
+        )
+    `);
 
-  console.log("PostgreSQL database initialized.");
+    await pool.query(`
+        ALTER TABLE orders
+        ADD COLUMN IF NOT EXISTS delivery_address TEXT
+    `);
+
+    await pool.query(`
+        ALTER TABLE orders
+        ADD COLUMN IF NOT EXISTS city TEXT
+    `);
+
+    await pool.query(`
+        ALTER TABLE orders
+        ADD COLUMN IF NOT EXISTS payment_status TEXT NOT NULL DEFAULT 'Payment Pending'
+    `);
+
+    await pool.query(`
+        ALTER TABLE orders
+        ADD COLUMN IF NOT EXISTS payment_reference TEXT
+    `);
+
+    console.log("PostgreSQL database initialized.");
 }
-
-/* =====================================================
-ORDER ITEMS TABLE
-===================================================== */
-
 
 /* =====================================================
 HOME / TEST ROUTE
 ===================================================== */
 
+app.get("/", (req, res) => {
+
+    res.send(
+        "Kaycy Mart backend and database are working! 🛒🔥"
+    );
+
+});
+
+/* =====================================================
+START SERVER
+===================================================== */
+
 initDatabase()
     .then(() => {
+
         app.listen(
             PORT,
             () => {
                 console.log(
-                    "Kaycy Mart server is running on port 3000"
+                    `Kaycy Mart server is running on port ${PORT}`
                 );
             }
         );
+
     })
     .catch(error => {
+
         console.error(
             "Database initialization failed:",
             error
         );
+
         process.exit(1);
+
     });
-app.get("/", (req, res) => {
-
-res.send(
-    "Kaycy Mart backend and database are working! 🛒🔥"
-);
-
-});
 
 /* =====================================================
 ADMIN CHECK MIDDLEWARE
@@ -75,38 +146,47 @@ async function requireAdmin(req, res, next) {
         req.headers["x-admin-user-id"];
 
     if (!adminId) {
+
         return res.status(401).json({
             message: "Admin login is required."
         });
+
     }
 
     try {
 
-        const result = await pool.query(`
-            SELECT
-                id,
-                name,
-                email,
-                role
-            FROM users
-            WHERE id = $1
-        `, [
-            adminId
-        ]);
+        const result =
+            await pool.query(`
+                SELECT
+                    id,
+                    name,
+                    email,
+                    role
+                FROM users
+                WHERE id = $1
+            `, [
+                adminId
+            ]);
 
-        const admin = result.rows[0];
+        const admin =
+            result.rows[0];
 
         if (!admin) {
+
             return res.status(401).json({
-                message: "Admin account could not be verified."
+                message:
+                    "Admin account could not be verified."
             });
+
         }
 
         if (admin.role !== "admin") {
+
             return res.status(403).json({
                 message:
                     "Access denied. Admin permission required."
             });
+
         }
 
         req.admin = admin;
@@ -118,7 +198,8 @@ async function requireAdmin(req, res, next) {
         console.error(error);
 
         res.status(500).json({
-            message: "Could not verify admin account."
+            message:
+                "Could not verify admin account."
         });
 
     }
@@ -129,23 +210,23 @@ async function requireAdmin(req, res, next) {
 GET ALL PRODUCTS
 ===================================================== */
 
-
 app.get("/api/products", async (req, res) => {
 
     try {
 
-        const result = await pool.query(`
-            SELECT
-                id,
-                name,
-                price,
-                category,
-                emoji,
-                description,
-                image
-            FROM products
-            ORDER BY id ASC
-        `);
+        const result =
+            await pool.query(`
+                SELECT
+                    id,
+                    name,
+                    price,
+                    category,
+                    emoji,
+                    description,
+                    image
+                FROM products
+                ORDER BY id ASC
+            `);
 
         res.json(result.rows);
 
@@ -154,7 +235,8 @@ app.get("/api/products", async (req, res) => {
         console.error(error);
 
         res.status(500).json({
-            message: "Could not load products."
+            message:
+                "Could not load products."
         });
 
     }
@@ -165,70 +247,71 @@ app.get("/api/products", async (req, res) => {
 REGISTER
 ===================================================== */
 
-
 app.post("/api/register", async (req, res) => {
 
-const {
-    name,
-    email,
-    phone,
-    password
-} = req.body;
+    const {
+        name,
+        email,
+        phone,
+        password
+    } = req.body;
 
-if (!name || !email || !password) {
-    return res.status(400).json({
-        message:
-            "Please fill in all required fields."
-    });
-}
+    if (!name || !email || !password) {
 
-try {
-
-    const hashedPassword =
-        await bcrypt.hash(password, 10);
-
-    const result =
-        await pool.query(`
-            INSERT INTO users
-            (name, email, phone, password)
-            VALUES ($1, $2, $3, $4)
-            RETURNING id
-        `, [
-            name.trim(),
-            email.trim(),
-            phone ? phone.trim() : null,
-            hashedPassword
-        ]);
-
-    res.status(201).json({
-
-        message:
-            "Account created successfully!",
-
-        userId:
-            result.rows[0].id
-
-    });
-
-} catch (error) {
-
-    if (error.code === "23505") {
-
-        return res.status(409).json({
+        return res.status(400).json({
             message:
-                "That email is already registered."
+                "Please fill in all required fields."
         });
 
     }
 
-    console.error(error);
+    try {
 
-    res.status(500).json({
-        message:
-            "Something went wrong."
-    });
+        const hashedPassword =
+            await bcrypt.hash(password, 10);
 
-}
+        const result =
+            await pool.query(`
+                INSERT INTO users
+                (name, email, phone, password)
+                VALUES ($1, $2, $3, $4)
+                RETURNING id
+            `, [
+                name.trim(),
+                email.trim(),
+                phone ? phone.trim() : null,
+                hashedPassword
+            ]);
+
+        res.status(201).json({
+
+            message:
+                "Account created successfully!",
+
+            userId:
+                result.rows[0].id
+
+        });
+
+    } catch (error) {
+
+        if (error.code === "23505") {
+
+            return res.status(409).json({
+                message:
+                    "That email is already registered."
+            });
+
+        }
+
+        console.error(error);
+
+        res.status(500).json({
+            message:
+                "Something went wrong."
+        });
+
+    }
 
 });
 
@@ -238,97 +321,100 @@ LOGIN
 
 app.post("/api/login", async (req, res) => {
 
-const {
-    email,
-    password
-} = req.body;
+    const {
+        email,
+        password
+    } = req.body;
 
-if (!email || !password) {
-    return res.status(400).json({
-        message:
-            "Please enter your email and password."
-    });
-}
+    if (!email || !password) {
 
-try {
-
-    const result =
-        await pool.query(`
-            SELECT
-                id,
-                name,
-                email,
-                phone,
-                password,
-                role
-            FROM users
-            WHERE LOWER(email) = LOWER($1)
-        `, [
-            email.trim()
-        ]);
-
-    const user = result.rows[0];
-
-    if (!user) {
-
-        return res.status(401).json({
+        return res.status(400).json({
             message:
-                "Invalid email or password."
+                "Please enter your email and password."
         });
 
     }
 
-    const passwordMatches =
-        await bcrypt.compare(
-            password,
-            user.password
-        );
+    try {
 
-    if (!passwordMatches) {
+        const result =
+            await pool.query(`
+                SELECT
+                    id,
+                    name,
+                    email,
+                    phone,
+                    password,
+                    role
+                FROM users
+                WHERE LOWER(email) = LOWER($1)
+            `, [
+                email.trim()
+            ]);
 
-        return res.status(401).json({
-            message:
-                "Invalid email or password."
-        });
+        const user =
+            result.rows[0];
 
-    }
+        if (!user) {
 
-    res.json({
-
-        message:
-            "Login successful!",
-
-        user: {
-
-            id:
-                user.id,
-
-            name:
-                user.name,
-
-            email:
-                user.email,
-
-            phone:
-                user.phone || "",
-
-            role:
-                user.role || "customer"
+            return res.status(401).json({
+                message:
+                    "Invalid email or password."
+            });
 
         }
 
-    });
+        const passwordMatches =
+            await bcrypt.compare(
+                password,
+                user.password
+            );
 
-} catch (error) {
+        if (!passwordMatches) {
 
-    console.error(error);
+            return res.status(401).json({
+                message:
+                    "Invalid email or password."
+            });
 
-    res.status(500).json({
-        message:
-            "Something went wrong."
-    });
+        }
 
-}
+        res.json({
+
+            message:
+                "Login successful!",
+
+            user: {
+
+                id:
+                    user.id,
+
+                name:
+                    user.name,
+
+                email:
+                    user.email,
+
+                phone:
+                    user.phone || "",
+
+                role:
+                    user.role || "customer"
+
+            }
+
+        });
+
+    } catch (error) {
+
+        console.error(error);
+
+        res.status(500).json({
+            message:
+                "Something went wrong."
+        });
+
+    }
 
 });
 
@@ -338,60 +424,61 @@ FORGOT PASSWORD — CHECK ACCOUNT
 
 app.post("/api/forgot-password", async (req, res) => {
 
-const {
-    email
-} = req.body;
+    const {
+        email
+    } = req.body;
 
-if (!email) {
+    if (!email) {
 
-    return res.status(400).json({
-        message:
-            "Email address is required."
-    });
-
-}
-
-try {
-
-    const result =
-        await pool.query(`
-            SELECT
-                id,
-                email
-            FROM users
-            WHERE LOWER(email) = LOWER($1)
-        `, [
-            email.trim()
-        ]);
-
-    const user = result.rows[0];
-
-    if (!user) {
-
-        return res.status(404).json({
+        return res.status(400).json({
             message:
-                "No account found with that email."
+                "Email address is required."
         });
 
     }
 
-    res.json({
+    try {
 
-        message:
-            "Account found."
+        const result =
+            await pool.query(`
+                SELECT
+                    id,
+                    email
+                FROM users
+                WHERE LOWER(email) = LOWER($1)
+            `, [
+                email.trim()
+            ]);
 
-    });
+        const user =
+            result.rows[0];
 
-} catch (error) {
+        if (!user) {
 
-    console.error(error);
+            return res.status(404).json({
+                message:
+                    "No account found with that email."
+            });
 
-    res.status(500).json({
-        message:
-            "Could not check account."
-    });
+        }
 
-}
+        res.json({
+
+            message:
+                "Account found."
+
+        });
+
+    } catch (error) {
+
+        console.error(error);
+
+        res.status(500).json({
+            message:
+                "Could not check account."
+        });
+
+    }
 
 });
 
@@ -401,82 +488,83 @@ RESET PASSWORD
 
 app.post("/api/reset-password", async (req, res) => {
 
-const {
-    email,
-    newPassword
-} = req.body;
+    const {
+        email,
+        newPassword
+    } = req.body;
 
-if (!email || !newPassword) {
+    if (!email || !newPassword) {
 
-    return res.status(400).json({
-        message:
-            "Email and new password are required."
-    });
-
-}
-
-if (newPassword.length < 6) {
-
-    return res.status(400).json({
-        message:
-            "Password must be at least 6 characters."
-    });
-
-}
-
-try {
-
-    const result =
-        await pool.query(`
-            SELECT
-                id
-            FROM users
-            WHERE LOWER(email) = LOWER($1)
-        `, [
-            email.trim()
-        ]);
-
-    const user = result.rows[0];
-
-    if (!user) {
-
-        return res.status(404).json({
+        return res.status(400).json({
             message:
-                "No account found with that email."
+                "Email and new password are required."
         });
 
     }
 
-    const hashedPassword =
-        await bcrypt.hash(
-            newPassword,
-            10
-        );
+    if (newPassword.length < 6) {
 
-    await pool.query(`
-        UPDATE users
-        SET password = $1
-        WHERE id = $2
-    `, [
-        hashedPassword,
-        user.id
-    ]);
+        return res.status(400).json({
+            message:
+                "Password must be at least 6 characters."
+        });
 
-    res.json({
-        message:
-            "Password reset successfully."
-    });
+    }
 
-} catch (error) {
+    try {
 
-    console.error(error);
+        const result =
+            await pool.query(`
+                SELECT
+                    id
+                FROM users
+                WHERE LOWER(email) = LOWER($1)
+            `, [
+                email.trim()
+            ]);
 
-    res.status(500).json({
-        message:
-            "Could not reset password."
-    });
+        const user =
+            result.rows[0];
 
-}
+        if (!user) {
+
+            return res.status(404).json({
+                message:
+                    "No account found with that email."
+            });
+
+        }
+
+        const hashedPassword =
+            await bcrypt.hash(
+                newPassword,
+                10
+            );
+
+        await pool.query(`
+            UPDATE users
+            SET password = $1
+            WHERE id = $2
+        `, [
+            hashedPassword,
+            user.id
+        ]);
+
+        res.json({
+            message:
+                "Password reset successfully."
+        });
+
+    } catch (error) {
+
+        console.error(error);
+
+        res.status(500).json({
+            message:
+                "Could not reset password."
+        });
+
+    }
 
 });
 
@@ -486,206 +574,264 @@ CREATE ORDER
 
 app.post("/api/orders", async (req, res) => {
 
-const {
-    userId,
-    customerName,
-    customerEmail,
-    customerPhone,
-    deliveryAddress,
-    city,
-    items,
-    paymentMethod
-} = req.body;
-
-if (
-    !userId ||
-    !customerName ||
-    !items ||
-    !Array.isArray(items) ||
-    items.length === 0
-) {
-    return res.status(400).json({
-        message:
-            "User, customer information and order items are required."
-    });
-}
-
-if (!deliveryAddress || !city) {
-    return res.status(400).json({
-        message:
-            "Delivery address and city are required."
-    });
-}
-
-const client = await pool.connect();
-
-try {
-
-    const userResult = await client.query(`
-        SELECT id
-        FROM users
-        WHERE id = $1
-    `, [userId]);
-
-    if (userResult.rows.length === 0) {
-
-        return res.status(401).json({
-            message:
-                "User account could not be verified."
-        });
-
-    }
-
-    let total = 0;
-    const orderItems = [];
-
-    for (const item of items) {
-
-        if (
-            !item.productId ||
-            !item.quantity ||
-            Number(item.quantity) < 1
-        ) {
-            return res.status(400).json({
-                message:
-                    "Invalid order item."
-            });
-        }
-
-        const productResult = await client.query(`
-            SELECT
-                id,
-                name,
-                price
-            FROM products
-            WHERE id = $1
-        `, [item.productId]);
-
-        const product = productResult.rows[0];
-
-        if (!product) {
-            return res.status(404).json({
-                message:
-                    "Product not found."
-            });
-        }
-
-        const quantity = Number(item.quantity);
-
-        total += Number(product.price) * quantity;
-
-        orderItems.push({
-            productId: product.id,
-            productName: product.name,
-            price: Number(product.price),
-            quantity: quantity
-        });
-    }
-
-    const orderNumber =
-        "KM" + Date.now().toString().slice(-8);
-
-    await client.query("BEGIN");
-
-    const orderResult = await client.query(`
-        INSERT INTO orders (
-            order_number,
-            user_id,
-            customer_name,
-            customer_email,
-            customer_phone,
-            delivery_address,
-            city,
-            total,
-            status,
-            payment_method,
-            payment_status
-        )
-        VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
-        )
-        RETURNING id
-    `, [
-        orderNumber,
+    const {
         userId,
         customerName,
-        customerEmail || null,
-        customerPhone || null,
+        customerEmail,
+        customerPhone,
         deliveryAddress,
         city,
-        total,
-        "Order Received",
-        paymentMethod || "Bank Transfer",
-        "Payment Pending"
-    ]);
+        items,
+        paymentMethod
+    } = req.body;
 
-    const orderId = orderResult.rows[0].id;
+    if (
+        !userId ||
+        !customerName ||
+        !items ||
+        !Array.isArray(items) ||
+        items.length === 0
+    ) {
 
-    for (const item of orderItems) {
-
-        await client.query(`
-            INSERT INTO order_items (
-                order_id,
-                product_id,
-                product_name,
-                price,
-                quantity
-            )
-            VALUES ($1, $2, $3, $4, $5)
-        `, [
-            orderId,
-            item.productId,
-            item.productName,
-            item.price,
-            item.quantity
-        ]);
+        return res.status(400).json({
+            message:
+                "User, customer information and order items are required."
+        });
 
     }
 
-    await client.query("COMMIT");
+    if (!deliveryAddress || !city) {
 
-    res.status(201).json({
+        return res.status(400).json({
+            message:
+                "Delivery address and city are required."
+        });
 
-        message:
-            "Order created successfully!",
+    }
 
-        orderId:
-            orderId,
-
-        orderNumber:
-            orderNumber,
-
-        total:
-            total,
-
-        status:
-            "Order Received",
-
-        paymentStatus:
-            "Payment Pending"
-
-    });
-
-} catch (error) {
+    const client =
+        await pool.connect();
 
     try {
-        await client.query("ROLLBACK");
-    } catch (rollbackError) {
-        console.error("Rollback failed:", rollbackError);
+
+        const userResult =
+            await client.query(`
+                SELECT id
+                FROM users
+                WHERE id = $1
+            `, [
+                userId
+            ]);
+
+        if (userResult.rows.length === 0) {
+
+            return res.status(401).json({
+                message:
+                    "User account could not be verified."
+            });
+
+        }
+
+        let total = 0;
+
+        const orderItems = [];
+
+        for (const item of items) {
+
+            if (
+                !item.productId ||
+                !item.quantity ||
+                Number(item.quantity) < 1
+            ) {
+
+                return res.status(400).json({
+                    message:
+                        "Invalid order item."
+                });
+
+            }
+
+            const productResult =
+                await client.query(`
+                    SELECT
+                        id,
+                        name,
+                        price
+                    FROM products
+                    WHERE id = $1
+                `, [
+                    item.productId
+                ]);
+
+            const product =
+                productResult.rows[0];
+
+            if (!product) {
+
+                return res.status(404).json({
+                    message:
+                        "Product not found."
+                });
+
+            }
+
+            const quantity =
+                Number(item.quantity);
+
+            total +=
+                Number(product.price) *
+                quantity;
+
+            orderItems.push({
+
+                productId:
+                    product.id,
+
+                productName:
+                    product.name,
+
+                price:
+                    Number(product.price),
+
+                quantity:
+                    quantity
+
+            });
+
+        }
+
+        const orderNumber =
+            "KM" +
+            Date.now()
+                .toString()
+                .slice(-8);
+
+        await client.query("BEGIN");
+
+        const orderResult =
+            await client.query(`
+                INSERT INTO orders (
+                    order_number,
+                    user_id,
+                    customer_name,
+                    customer_email,
+                    customer_phone,
+                    delivery_address,
+                    city,
+                    total,
+                    status,
+                    payment_method,
+                    payment_status
+                )
+                VALUES (
+                    $1,
+                    $2,
+                    $3,
+                    $4,
+                    $5,
+                    $6,
+                    $7,
+                    $8,
+                    $9,
+                    $10,
+                    $11
+                )
+                RETURNING id
+            `, [
+
+                orderNumber,
+                userId,
+                customerName,
+                customerEmail || null,
+                customerPhone || null,
+                deliveryAddress,
+                city,
+                total,
+                "Order Received",
+                paymentMethod || "Bank Transfer",
+                "Payment Pending"
+
+            ]);
+
+        const orderId =
+            orderResult.rows[0].id;
+
+        for (const item of orderItems) {
+
+            await client.query(`
+                INSERT INTO order_items (
+                    order_id,
+                    product_id,
+                    product_name,
+                    price,
+                    quantity
+                )
+                VALUES ($1, $2, $3, $4, $5)
+            `, [
+
+                orderId,
+                item.productId,
+                item.productName,
+                item.price,
+                item.quantity
+
+            ]);
+
+        }
+
+        await client.query("COMMIT");
+
+        res.status(201).json({
+
+            message:
+                "Order created successfully!",
+
+            orderId:
+                orderId,
+
+            orderNumber:
+                orderNumber,
+
+            total:
+                total,
+
+            status:
+                "Order Received",
+
+            paymentStatus:
+                "Payment Pending"
+
+        });
+
+    } catch (error) {
+
+        try {
+
+            await client.query(
+                "ROLLBACK"
+            );
+
+        } catch (rollbackError) {
+
+            console.error(
+                "Rollback failed:",
+                rollbackError
+            );
+
+        }
+
+        console.error(error);
+
+        res.status(500).json({
+            message:
+                "Could not create order."
+        });
+
+    } finally {
+
+        client.release();
+
     }
-
-    console.error(error);
-
-    res.status(500).json({
-        message:
-            "Could not create order."
-    });
-
-} finally {
-
-    client.release();
-
-}
 
 });
 
@@ -695,50 +841,151 @@ GET USER'S ORDERS
 
 app.get("/api/orders", async (req, res) => {
 
-const {
-    userId
-} = req.query;
+    const {
+        userId
+    } = req.query;
 
-if (!userId) {
+    if (!userId) {
 
-    return res.status(400).json({
-        message:
-            "User ID is required."
-    });
+        return res.status(400).json({
+            message:
+                "User ID is required."
+        });
 
-}
+    }
 
-try {
+    try {
 
-    const ordersResult =
-        await pool.query(`
-            SELECT
-                id,
-                order_number,
-                user_id,
-                customer_name,
-                customer_email,
-                customer_phone,
-                delivery_address,
-                city,
-                total,
-                status,
-                payment_method,
-                payment_status,
-                payment_reference,
-                created_at
-            FROM orders
-            WHERE user_id = $1
-            ORDER BY id DESC
-        `, [
-            userId
-        ]);
+        const ordersResult =
+            await pool.query(`
+                SELECT
+                    id,
+                    order_number,
+                    user_id,
+                    customer_name,
+                    customer_email,
+                    customer_phone,
+                    delivery_address,
+                    city,
+                    total,
+                    status,
+                    payment_method,
+                    payment_status,
+                    payment_reference,
+                    created_at
+                FROM orders
+                WHERE user_id = $1
+                ORDER BY id DESC
+            `, [
+                userId
+            ]);
 
-    const orders = ordersResult.rows;
+        const orders =
+            ordersResult.rows;
 
-    const ordersWithItems = [];
+        const ordersWithItems = [];
 
-    for (const order of orders) {
+        for (const order of orders) {
+
+            const itemsResult =
+                await pool.query(`
+                    SELECT
+                        id,
+                        product_id,
+                        product_name,
+                        price,
+                        quantity
+                    FROM order_items
+                    WHERE order_id = $1
+                `, [
+                    order.id
+                ]);
+
+            ordersWithItems.push({
+
+                ...order,
+
+                items:
+                    itemsResult.rows
+
+            });
+
+        }
+
+        res.json(
+            ordersWithItems
+        );
+
+    } catch (error) {
+
+        console.error(error);
+
+        res.status(500).json({
+            message:
+                "Could not load orders."
+        });
+
+    }
+
+});
+
+/* =====================================================
+GET SINGLE USER ORDER
+===================================================== */
+
+app.get("/api/orders/:id", async (req, res) => {
+
+    const {
+        userId
+    } = req.query;
+
+    if (!userId) {
+
+        return res.status(400).json({
+            message:
+                "User ID is required."
+        });
+
+    }
+
+    try {
+
+        const orderResult =
+            await pool.query(`
+                SELECT
+                    id,
+                    order_number,
+                    user_id,
+                    customer_name,
+                    customer_email,
+                    customer_phone,
+                    delivery_address,
+                    city,
+                    total,
+                    status,
+                    payment_method,
+                    payment_status,
+                    payment_reference,
+                    created_at
+                FROM orders
+                WHERE id = $1
+                AND user_id = $2
+            `, [
+                req.params.id,
+                userId
+            ]);
+
+        const order =
+            orderResult.rows[0];
+
+        if (!order) {
+
+            return res.status(404).json({
+                message:
+                    "Order not found."
+            });
+
+        }
 
         const itemsResult =
             await pool.query(`
@@ -751,97 +998,17 @@ try {
                 FROM order_items
                 WHERE order_id = $1
             `, [
-                order.id
+                req.params.id
             ]);
 
-        ordersWithItems.push({
-            ...order,
-            items: itemsResult.rows
-        });
-
-    }
-
-    res.json(
-        ordersWithItems
-    );
-
-} catch (error) {
-
-    console.error(error);
-
-    res.status(500).json({
-        message:
-            "Could not load orders."
-    });
-
-}
-
-});
-
-/* =====================================================
-GET SINGLE USER ORDER
-===================================================== */
-
-app.get("/api/orders/:id", async (req, res) => {
-
-    const { userId } = req.query;
-
-    if (!userId) {
-        return res.status(400).json({
-            message: "User ID is required."
-        });
-    }
-
-    try {
-
-        const orderResult = await pool.query(`
-            SELECT
-                id,
-                order_number,
-                user_id,
-                customer_name,
-                customer_email,
-                customer_phone,
-                delivery_address,
-                city,
-                total,
-                status,
-                payment_method,
-                payment_status,
-                payment_reference,
-                created_at
-            FROM orders
-            WHERE id = $1
-            AND user_id = $2
-        `, [
-            req.params.id,
-            userId
-        ]);
-
-        const order = orderResult.rows[0];
-
-        if (!order) {
-            return res.status(404).json({
-                message: "Order not found."
-            });
-        }
-
-        const itemsResult = await pool.query(`
-            SELECT
-                id,
-                product_id,
-                product_name,
-                price,
-                quantity
-            FROM order_items
-            WHERE order_id = $1
-        `, [
-            req.params.id
-        ]);
-
         res.json({
-            order: order,
-            items: itemsResult.rows
+
+            order:
+                order,
+
+            items:
+                itemsResult.rows
+
         });
 
     } catch (error) {
@@ -849,7 +1016,8 @@ app.get("/api/orders/:id", async (req, res) => {
         console.error(error);
 
         res.status(500).json({
-            message: "Could not load order."
+            message:
+                "Could not load order."
         });
 
     }
@@ -860,7 +1028,6 @@ app.get("/api/orders/:id", async (req, res) => {
 CUSTOMER — SUBMIT PAYMENT REFERENCE
 ===================================================== */
 
-
 app.post("/api/orders/:id/payment", async (req, res) => {
 
     const {
@@ -869,47 +1036,64 @@ app.post("/api/orders/:id/payment", async (req, res) => {
     } = req.body;
 
     if (!userId) {
+
         return res.status(400).json({
-            message: "User ID is required."
+            message:
+                "User ID is required."
         });
+
     }
 
     if (
         !paymentReference ||
         !String(paymentReference).trim()
     ) {
+
         return res.status(400).json({
-            message: "Payment reference is required."
+            message:
+                "Payment reference is required."
         });
+
     }
 
     try {
 
-        const orderResult = await pool.query(`
-            SELECT
-                id,
-                user_id,
-                payment_status
-            FROM orders
-            WHERE id = $1
-            AND user_id = $2
-        `, [
-            req.params.id,
-            userId
-        ]);
+        const orderResult =
+            await pool.query(`
+                SELECT
+                    id,
+                    user_id,
+                    payment_status
+                FROM orders
+                WHERE id = $1
+                AND user_id = $2
+            `, [
+                req.params.id,
+                userId
+            ]);
 
-        const order = orderResult.rows[0];
+        const order =
+            orderResult.rows[0];
 
         if (!order) {
+
             return res.status(404).json({
-                message: "Order not found."
+                message:
+                    "Order not found."
             });
+
         }
 
-        if (order.payment_status === "Payment Confirmed") {
+        if (
+            order.payment_status ===
+            "Payment Confirmed"
+        ) {
+
             return res.status(400).json({
-                message: "This payment has already been confirmed."
+                message:
+                    "This payment has already been confirmed."
             });
+
         }
 
         await pool.query(`
@@ -926,8 +1110,13 @@ app.post("/api/orders/:id/payment", async (req, res) => {
         ]);
 
         res.json({
-            message: "Payment details submitted successfully.",
-            paymentStatus: "Payment Submitted"
+
+            message:
+                "Payment details submitted successfully.",
+
+            paymentStatus:
+                "Payment Submitted"
+
         });
 
     } catch (error) {
@@ -935,7 +1124,8 @@ app.post("/api/orders/:id/payment", async (req, res) => {
         console.error(error);
 
         res.status(500).json({
-            message: "Could not submit payment details."
+            message:
+                "Could not submit payment details."
         });
 
     }
@@ -946,65 +1136,74 @@ app.post("/api/orders/:id/payment", async (req, res) => {
 ADMIN — GET ALL ORDERS
 ===================================================== */
 
-
 app.get("/api/admin/orders", requireAdmin, async (req, res) => {
 
     try {
 
-        const ordersResult = await pool.query(`
-            SELECT
-                id,
-                order_number,
-                user_id,
-                customer_name,
-                customer_email,
-                customer_phone,
-                delivery_address,
-                city,
-                total,
-                status,
-                payment_method,
-                payment_status,
-                payment_reference,
-                created_at
-            FROM orders
-            ORDER BY id DESC
-        `);
+        const ordersResult =
+            await pool.query(`
+                SELECT
+                    id,
+                    order_number,
+                    user_id,
+                    customer_name,
+                    customer_email,
+                    customer_phone,
+                    delivery_address,
+                    city,
+                    total,
+                    status,
+                    payment_method,
+                    payment_status,
+                    payment_reference,
+                    created_at
+                FROM orders
+                ORDER BY id DESC
+            `);
 
-        const orders = ordersResult.rows;
+        const orders =
+            ordersResult.rows;
 
         const ordersWithItems = [];
 
         for (const order of orders) {
 
-            const itemsResult = await pool.query(`
-                SELECT
-                    id,
-                    product_id,
-                    product_name,
-                    price,
-                    quantity
-                FROM order_items
-                WHERE order_id = $1
-            `, [
-                order.id
-            ]);
+            const itemsResult =
+                await pool.query(`
+                    SELECT
+                        id,
+                        product_id,
+                        product_name,
+                        price,
+                        quantity
+                    FROM order_items
+                    WHERE order_id = $1
+                `, [
+                    order.id
+                ]);
 
             ordersWithItems.push({
+
                 ...order,
-                items: itemsResult.rows
+
+                items:
+                    itemsResult.rows
+
             });
 
         }
 
-        res.json(ordersWithItems);
+        res.json(
+            ordersWithItems
+        );
 
     } catch (error) {
 
         console.error(error);
 
         res.status(500).json({
-            message: "Could not load admin orders."
+            message:
+                "Could not load admin orders."
         });
 
     }
@@ -1015,22 +1214,22 @@ app.get("/api/admin/orders", requireAdmin, async (req, res) => {
 ADMIN — GET ALL USERS
 ===================================================== */
 
-
 app.get("/api/admin/users", requireAdmin, async (req, res) => {
 
     try {
 
-        const result = await pool.query(`
-            SELECT
-                id,
-                name,
-                email,
-                phone,
-                role,
-                created_at
-            FROM users
-            ORDER BY id DESC
-        `);
+        const result =
+            await pool.query(`
+                SELECT
+                    id,
+                    name,
+                    email,
+                    phone,
+                    role,
+                    created_at
+                FROM users
+                ORDER BY id DESC
+            `);
 
         res.json(result.rows);
 
@@ -1039,7 +1238,8 @@ app.get("/api/admin/users", requireAdmin, async (req, res) => {
         console.error(error);
 
         res.status(500).json({
-            message: "Could not load users."
+            message:
+                "Could not load users."
         });
 
     }
@@ -1050,67 +1250,87 @@ app.get("/api/admin/users", requireAdmin, async (req, res) => {
 ADMIN — GET DASHBOARD SUMMARY
 ===================================================== */
 
-
 app.get("/api/admin/dashboard", requireAdmin, async (req, res) => {
 
     try {
 
-        const totalOrdersResult = await pool.query(`
-            SELECT COUNT(*) AS count
-            FROM orders
-        `);
+        const totalOrdersResult =
+            await pool.query(`
+                SELECT COUNT(*) AS count
+                FROM orders
+            `);
 
-        const totalCustomersResult = await pool.query(`
-            SELECT COUNT(*) AS count
-            FROM users
-            WHERE role = 'customer'
-        `);
+        const totalCustomersResult =
+            await pool.query(`
+                SELECT COUNT(*) AS count
+                FROM users
+                WHERE role = 'customer'
+            `);
 
-        const totalProductsResult = await pool.query(`
-            SELECT COUNT(*) AS count
-            FROM products
-        `);
+        const totalProductsResult =
+            await pool.query(`
+                SELECT COUNT(*) AS count
+                FROM products
+            `);
 
-        const totalSalesResult = await pool.query(`
-            SELECT COALESCE(SUM(total), 0) AS total
-            FROM orders
-            WHERE payment_status = 'Payment Confirmed'
-        `);
+        const totalSalesResult =
+            await pool.query(`
+                SELECT
+                    COALESCE(SUM(total), 0) AS total
+                FROM orders
+                WHERE payment_status =
+                    'Payment Confirmed'
+            `);
 
-        const pendingOrdersResult = await pool.query(`
-            SELECT COUNT(*) AS count
-            FROM orders
-            WHERE status = 'Order Received'
-        `);
+        const pendingOrdersResult =
+            await pool.query(`
+                SELECT COUNT(*) AS count
+                FROM orders
+                WHERE status =
+                    'Order Received'
+            `);
 
-        const pendingPaymentsResult = await pool.query(`
-            SELECT COUNT(*) AS count
-            FROM orders
-            WHERE payment_status IN (
-                'Payment Pending',
-                'Payment Submitted'
-            )
-        `);
+        const pendingPaymentsResult =
+            await pool.query(`
+                SELECT COUNT(*) AS count
+                FROM orders
+                WHERE payment_status IN (
+                    'Payment Pending',
+                    'Payment Submitted'
+                )
+            `);
 
         res.json({
 
             totalOrders:
-                Number(totalOrdersResult.rows[0].count),
+                Number(
+                    totalOrdersResult.rows[0].count
+                ),
 
             totalCustomers:
-                Number(totalCustomersResult.rows[0].count),
+                Number(
+                    totalCustomersResult.rows[0].count
+                ),
 
             totalProducts:
-                Number(totalProductsResult.rows[0].count),
+                Number(
+                    totalProductsResult.rows[0].count
+                ),
 
             totalSales:
-                Number(totalSalesResult.rows[0].total),
+                Number(
+                    totalSalesResult.rows[0].total
+                ),
 
             pendingOrders:
-                Number(pendingOrdersResult.rows[0].count),
+                Number(
+                    pendingOrdersResult.rows[0].count
+                ),
 
             pendingPayments:
-                Number(pendingPaymentsResult.rows[0].count)
+                Number(
+                    pendingPaymentsResult.rows[0].count
+                )
 
         });
 
@@ -1119,7 +1339,8 @@ app.get("/api/admin/dashboard", requireAdmin, async (req, res) => {
         console.error(error);
 
         res.status(500).json({
-            message: "Could not load dashboard information."
+            message:
+                "Could not load dashboard information."
         });
 
     }
@@ -1130,437 +1351,565 @@ app.get("/api/admin/dashboard", requireAdmin, async (req, res) => {
 ADMIN — CONFIRM PAYMENT
 ===================================================== */
 
+app.patch(
+    "/api/admin/orders/:id/payment",
+    requireAdmin,
+    async (req, res) => {
 
-app.patch("/api/admin/orders/:id/payment", requireAdmin, async (req, res) => {
+        try {
 
-    try {
+            const orderResult =
+                await pool.query(`
+                    SELECT
+                        id,
+                        order_number,
+                        payment_status
+                    FROM orders
+                    WHERE id = $1
+                `, [
+                    req.params.id
+                ]);
 
-        const orderResult = await pool.query(`
-            SELECT
-                id,
-                order_number,
-                payment_status
-            FROM orders
-            WHERE id = $1
-        `, [
-            req.params.id
-        ]);
+            const order =
+                orderResult.rows[0];
 
-        const order = orderResult.rows[0];
+            if (!order) {
 
-        if (!order) {
-            return res.status(404).json({
-                message: "Order not found."
+                return res.status(404).json({
+                    message:
+                        "Order not found."
+                });
+
+            }
+
+            await pool.query(`
+                UPDATE orders
+                SET payment_status =
+                    'Payment Confirmed'
+                WHERE id = $1
+            `, [
+                req.params.id
+            ]);
+
+            res.json({
+
+                message:
+                    "Payment confirmed successfully.",
+
+                paymentStatus:
+                    "Payment Confirmed",
+
+                orderId:
+                    order.id,
+
+                orderNumber:
+                    order.order_number
+
             });
+
+        } catch (error) {
+
+            console.error(error);
+
+            res.status(500).json({
+                message:
+                    "Could not confirm payment."
+            });
+
         }
 
-        await pool.query(`
-            UPDATE orders
-            SET payment_status = 'Payment Confirmed'
-            WHERE id = $1
-        `, [
-            req.params.id
-        ]);
-
-        res.json({
-
-            message: "Payment confirmed successfully.",
-
-            paymentStatus: "Payment Confirmed",
-
-            orderId: order.id,
-
-            orderNumber: order.order_number
-
-        });
-
-    } catch (error) {
-
-        console.error(error);
-
-        res.status(500).json({
-            message: "Could not confirm payment."
-        });
-
     }
-
-});
-
+);
 
 /* =====================================================
 ADMIN — MARK PAYMENT FAILED
 ===================================================== */
 
-app.patch("/api/admin/orders/:id/payment-failed", requireAdmin, async (req, res) => {
+app.patch(
+    "/api/admin/orders/:id/payment-failed",
+    requireAdmin,
+    async (req, res) => {
 
-    try {
+        try {
 
-        const orderResult = await pool.query(`
-            SELECT
-                id,
-                order_number
-            FROM orders
-            WHERE id = $1
-        `, [
-            req.params.id
-        ]);
+            const orderResult =
+                await pool.query(`
+                    SELECT
+                        id,
+                        order_number
+                    FROM orders
+                    WHERE id = $1
+                `, [
+                    req.params.id
+                ]);
 
-        const order = orderResult.rows[0];
+            const order =
+                orderResult.rows[0];
 
-        if (!order) {
-            return res.status(404).json({
-                message: "Order not found."
+            if (!order) {
+
+                return res.status(404).json({
+                    message:
+                        "Order not found."
+                });
+
+            }
+
+            await pool.query(`
+                UPDATE orders
+                SET payment_status =
+                    'Payment Failed'
+                WHERE id = $1
+            `, [
+                req.params.id
+            ]);
+
+            res.json({
+
+                message:
+                    "Payment marked as failed.",
+
+                paymentStatus:
+                    "Payment Failed",
+
+                orderId:
+                    order.id,
+
+                orderNumber:
+                    order.order_number
+
             });
+
+        } catch (error) {
+
+            console.error(error);
+
+            res.status(500).json({
+                message:
+                    "Could not mark payment as failed."
+            });
+
         }
 
-        await pool.query(`
-            UPDATE orders
-            SET payment_status = 'Payment Failed'
-            WHERE id = $1
-        `, [
-            req.params.id
-        ]);
-
-        res.json({
-
-            message: "Payment marked as failed.",
-
-            paymentStatus: "Payment Failed",
-
-            orderId: order.id,
-
-            orderNumber: order.order_number
-
-        });
-
-    } catch (error) {
-
-        console.error(error);
-
-        res.status(500).json({
-            message: "Could not mark payment as failed."
-        });
-
     }
-
-});
-
+);
 
 /* =====================================================
 ADMIN — ADD PRODUCT
 ===================================================== */
 
-app.post("/api/admin/products", requireAdmin, async (req, res) => {
+app.post(
+    "/api/admin/products",
+    requireAdmin,
+    async (req, res) => {
 
-    const {
-        name,
-        price,
-        category,
-        emoji,
-        description,
-        image
-    } = req.body;
+        const {
+            name,
+            price,
+            category,
+            emoji,
+            description,
+            image
+        } = req.body;
 
-    if (
-        !name ||
-        price === undefined ||
-        !category
-    ) {
-        return res.status(400).json({
-            message: "Product name, price and category are required."
-        });
+        if (
+            !name ||
+            price === undefined ||
+            !category
+        ) {
+
+            return res.status(400).json({
+                message:
+                    "Product name, price and category are required."
+            });
+
+        }
+
+        const productPrice =
+            Number(price);
+
+        if (
+            !Number.isFinite(productPrice) ||
+            productPrice < 0
+        ) {
+
+            return res.status(400).json({
+                message:
+                    "Please enter a valid product price."
+            });
+
+        }
+
+        try {
+
+            const result =
+                await pool.query(`
+                    INSERT INTO products (
+                        name,
+                        price,
+                        category,
+                        emoji,
+                        description,
+                        image
+                    )
+                    VALUES (
+                        $1,
+                        $2,
+                        $3,
+                        $4,
+                        $5,
+                        $6
+                    )
+                    RETURNING
+                        id,
+                        name,
+                        price,
+                        category,
+                        emoji,
+                        description,
+                        image
+                `, [
+
+                    name.trim(),
+                    Math.round(productPrice),
+                    category.trim(),
+                    emoji || "",
+                    description || "",
+                    image || ""
+
+                ]);
+
+            res.status(201).json({
+
+                message:
+                    "Product added successfully!",
+
+                product:
+                    result.rows[0]
+
+            });
+
+        } catch (error) {
+
+            console.error(error);
+
+            res.status(500).json({
+                message:
+                    "Could not add product."
+            });
+
+        }
+
     }
-
-    const productPrice = Number(price);
-
-    if (
-        !Number.isFinite(productPrice) ||
-        productPrice < 0
-    ) {
-        return res.status(400).json({
-            message: "Please enter a valid product price."
-        });
-    }
-
-    try {
-
-        const result = await pool.query(`
-            INSERT INTO products (
-                name,
-                price,
-                category,
-                emoji,
-                description,
-                image
-            )
-            VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING
-                id,
-                name,
-                price,
-                category,
-                emoji,
-                description,
-                image
-        `, [
-            name.trim(),
-            Math.round(productPrice),
-            category.trim(),
-            emoji || "",
-            description || "",
-            image || ""
-        ]);
-
-        res.status(201).json({
-            message: "Product added successfully!",
-            product: result.rows[0]
-        });
-
-    } catch (error) {
-
-        console.error(error);
-
-        res.status(500).json({
-            message: "Could not add product."
-        });
-
-    }
-
-});
+);
 
 /* =====================================================
 ADMIN — UPDATE PRODUCT
 ===================================================== */
 
+app.patch(
+    "/api/admin/products/:id",
+    requireAdmin,
+    async (req, res) => {
 
-app.patch("/api/admin/products/:id", requireAdmin, async (req, res) => {
+        const {
+            name,
+            price,
+            category,
+            emoji,
+            description,
+            image
+        } = req.body;
 
-    const {
-        name,
-        price,
-        category,
-        emoji,
-        description,
-        image
-    } = req.body;
+        if (
+            !name ||
+            price === undefined ||
+            !category
+        ) {
 
-    if (
-        !name ||
-        price === undefined ||
-        !category
-    ) {
-        return res.status(400).json({
-            message: "Product name, price and category are required."
-        });
-    }
-
-    const productPrice = Number(price);
-
-    if (
-        !Number.isFinite(productPrice) ||
-        productPrice < 0
-    ) {
-        return res.status(400).json({
-            message: "Please enter a valid product price."
-        });
-    }
-
-    try {
-
-        const existingProductResult = await pool.query(`
-            SELECT id
-            FROM products
-            WHERE id = $1
-        `, [
-            req.params.id
-        ]);
-
-        const existingProduct = existingProductResult.rows[0];
-
-        if (!existingProduct) {
-            return res.status(404).json({
-                message: "Product not found."
+            return res.status(400).json({
+                message:
+                    "Product name, price and category are required."
             });
+
         }
 
-        await pool.query(`
-            UPDATE products
-            SET
-                name = $1,
-                price = $2,
-                category = $3,
-                emoji = $4,
-                description = $5,
-                image = $6
-            WHERE id = $7
-        `, [
-            name.trim(),
-            Math.round(productPrice),
-            category.trim(),
-            emoji || "",
-            description || "",
-            image || "",
-            req.params.id
-        ]);
+        const productPrice =
+            Number(price);
 
-        const productResult = await pool.query(`
-            SELECT
-                id,
-                name,
-                price,
-                category,
-                emoji,
-                description,
-                image
-            FROM products
-            WHERE id = $1
-        `, [
-            req.params.id
-        ]);
+        if (
+            !Number.isFinite(productPrice) ||
+            productPrice < 0
+        ) {
 
-        res.json({
-            message: "Product updated successfully!",
-            product: productResult.rows[0]
-        });
+            return res.status(400).json({
+                message:
+                    "Please enter a valid product price."
+            });
 
-    } catch (error) {
+        }
 
-        console.error(error);
+        try {
 
-        res.status(500).json({
-            message: "Could not update product."
-        });
+            const existingProductResult =
+                await pool.query(`
+                    SELECT id
+                    FROM products
+                    WHERE id = $1
+                `, [
+                    req.params.id
+                ]);
+
+            const existingProduct =
+                existingProductResult.rows[0];
+
+            if (!existingProduct) {
+
+                return res.status(404).json({
+                    message:
+                        "Product not found."
+                });
+
+            }
+
+            await pool.query(`
+                UPDATE products
+                SET
+                    name = $1,
+                    price = $2,
+                    category = $3,
+                    emoji = $4,
+                    description = $5,
+                    image = $6
+                WHERE id = $7
+            `, [
+
+                name.trim(),
+                Math.round(productPrice),
+                category.trim(),
+                emoji || "",
+                description || "",
+                image || "",
+                req.params.id
+
+            ]);
+
+            const productResult =
+                await pool.query(`
+                    SELECT
+                        id,
+                        name,
+                        price,
+                        category,
+                        emoji,
+                        description,
+                        image
+                    FROM products
+                    WHERE id = $1
+                `, [
+                    req.params.id
+                ]);
+
+            res.json({
+
+                message:
+                    "Product updated successfully!",
+
+                product:
+                    productResult.rows[0]
+
+            });
+
+        } catch (error) {
+
+            console.error(error);
+
+            res.status(500).json({
+                message:
+                    "Could not update product."
+            });
+
+        }
 
     }
-
-});
+);
 
 /* =====================================================
 ADMIN — DELETE PRODUCT
 ===================================================== */
 
+app.delete(
+    "/api/admin/products/:id",
+    requireAdmin,
+    async (req, res) => {
 
-app.delete("/api/admin/products/:id", requireAdmin, async (req, res) => {
+        try {
 
-    try {
+            const productResult =
+                await pool.query(`
+                    SELECT
+                        id,
+                        name
+                    FROM products
+                    WHERE id = $1
+                `, [
+                    req.params.id
+                ]);
 
-        const productResult = await pool.query(`
-            SELECT
-                id,
-                name
-            FROM products
-            WHERE id = $1
-        `, [
-            req.params.id
-        ]);
+            const product =
+                productResult.rows[0];
 
-        const product = productResult.rows[0];
+            if (!product) {
 
-        if (!product) {
-            return res.status(404).json({
-                message: "Product not found."
-            });
-        }
+                return res.status(404).json({
+                    message:
+                        "Product not found."
+                });
 
-        const usedInOrdersResult = await pool.query(`
-            SELECT COUNT(*) AS count
-            FROM order_items
-            WHERE product_id = $1
-        `, [
-            req.params.id
-        ]);
+            }
 
-        const usedInOrders = Number(
-            usedInOrdersResult.rows[0].count
-        );
+            const usedInOrdersResult =
+                await pool.query(`
+                    SELECT COUNT(*) AS count
+                    FROM order_items
+                    WHERE product_id = $1
+                `, [
+                    req.params.id
+                ]);
 
-        if (usedInOrders > 0) {
-            return res.status(409).json({
+            const usedInOrders =
+                Number(
+                    usedInOrdersResult.rows[0].count
+                );
+
+            if (usedInOrders > 0) {
+
+                return res.status(409).json({
+                    message:
+                        "This product cannot be deleted because it is already part of an order."
+                });
+
+            }
+
+            await pool.query(`
+                DELETE FROM products
+                WHERE id = $1
+            `, [
+                req.params.id
+            ]);
+
+            res.json({
+
                 message:
-                    "This product cannot be deleted because it is already part of an order."
+                    "Product deleted successfully!",
+
+                productId:
+                    Number(req.params.id)
+
             });
+
+        } catch (error) {
+
+            console.error(error);
+
+            res.status(500).json({
+                message:
+                    "Could not delete product."
+            });
+
         }
-
-        await pool.query(`
-            DELETE FROM products
-            WHERE id = $1
-        `, [
-            req.params.id
-        ]);
-
-        res.json({
-            message: "Product deleted successfully!",
-            productId: Number(req.params.id)
-        });
-
-    } catch (error) {
-
-        console.error(error);
-
-        res.status(500).json({
-            message: "Could not delete product."
-        });
 
     }
-
-});
+);
 
 /* =====================================================
 ADMIN — UPDATE ORDER STATUS
 ===================================================== */
 
+app.patch(
+    "/api/admin/orders/:id/status",
+    requireAdmin,
+    async (req, res) => {
 
-app.patch("/api/admin/orders/:id/status", requireAdmin, async (req, res) => {
+        const {
+            status
+        } = req.body;
 
-    const {
-        status
-    } = req.body;
+        /*
+        Allowed order statuses
+        */
 
-    const allowedStatuses = [
-        "Order Received",
-        "Processing",
-        "Shipped",
-        "Delivered",
-        "Cancelled"
-    ];
+        const allowedStatuses = [
 
-    if (!allowedStatuses.includes(status)) {
-        return res.status(400).json({
-            message: "Invalid order status."
-        });
-    }
+            "Order Received",
 
-    try {
+            "Processing",
 
-        const result = await pool.query(`
-            UPDATE orders
-            SET status = $1
-            WHERE id = $2
-            RETURNING id
-        `, [
-            status,
-            req.params.id
-        ]);
+            "Shipped",
 
-        if (result.rows.length === 0) {
-            return res.status(404).json({
-                message: "Order not found."
+            "Out for Delivery",
+
+            "Delivered",
+
+            "Cancelled"
+
+        ];
+
+        if (!allowedStatuses.includes(status)) {
+
+            return res.status(400).json({
+
+                message:
+                    "Invalid order status."
+
             });
+
         }
 
-        res.json({
-            message: "Order status updated successfully.",
-            status: status
-        });
+        try {
 
-    } catch (error) {
+            const result =
+                await pool.query(`
+                    UPDATE orders
+                    SET status = $1
+                    WHERE id = $2
+                    RETURNING id
+                `, [
 
-        console.error(error);
+                    status,
+                    req.params.id
 
-        res.status(500).json({
-            message: "Could not update order status."
-        });
+                ]);
+
+            if (result.rows.length === 0) {
+
+                return res.status(404).json({
+                    message:
+                        "Order not found."
+                });
+
+            }
+
+            res.json({
+
+                message:
+                    "Order status updated successfully.",
+
+                status:
+                    status
+
+            });
+
+        } catch (error) {
+
+            console.error(error);
+
+            res.status(500).json({
+                message:
+                    "Could not update order status."
+            });
+
+        }
 
     }
-
-});
+);
