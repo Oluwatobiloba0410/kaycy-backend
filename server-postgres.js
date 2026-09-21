@@ -8,16 +8,22 @@ const cloudinary = require("cloudinary").v2;
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+/* =====================================================
+DATABASE
+===================================================== */
+
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false }
+    ssl: {
+        rejectUnauthorized: false
+    }
 });
 
 app.use(cors());
 app.use(express.json());
 
 /* =====================================================
-CLOUDINARY CONFIGURATION
+CLOUDINARY
 ===================================================== */
 
 cloudinary.config({
@@ -27,7 +33,7 @@ cloudinary.config({
 });
 
 /* =====================================================
-MULTER IMAGE UPLOAD CONFIGURATION
+MULTER
 ===================================================== */
 
 const upload = multer({
@@ -55,69 +61,96 @@ const upload = multer({
 });
 
 /* =====================================================
-OPTION VALIDATION
+PRODUCT OPTION VALIDATION
 ===================================================== */
 
 function cleanProductOptions(options) {
 
-    if (options === undefined || options === null) {
+    if (
+        options === undefined ||
+        options === null
+    ) {
         return [];
     }
 
     if (!Array.isArray(options)) {
+
         throw new Error(
             "Product options must be an array."
         );
+
     }
 
     const cleanedOptions = [];
 
     for (const option of options) {
 
-        if (!option || typeof option !== "object") {
+        if (
+            !option ||
+            typeof option !== "object"
+        ) {
+
             throw new Error(
                 "Invalid product option."
             );
+
         }
 
         const optionName =
-            String(option.name || "").trim();
+            String(
+                option.name || ""
+            ).trim();
 
         if (!optionName) {
+
             throw new Error(
                 "Every product option must have a name."
             );
+
         }
 
         if (!Array.isArray(option.values)) {
+
             throw new Error(
                 `Option "${optionName}" must contain values.`
             );
+
         }
 
         if (option.values.length === 0) {
+
             throw new Error(
                 `Option "${optionName}" must contain at least one value.`
             );
+
         }
 
         const cleanedValues = [];
 
         for (const value of option.values) {
 
-            if (!value || typeof value !== "object") {
+            if (
+                !value ||
+                typeof value !== "object"
+            ) {
+
                 throw new Error(
                     `Invalid value in "${optionName}".`
                 );
+
             }
 
             const valueName =
-                String(value.name || "").trim();
+                String(
+                    value.name || ""
+                ).trim();
 
             if (!valueName) {
+
                 throw new Error(
                     `Every value in "${optionName}" must have a name.`
                 );
+
             }
 
             let valuePrice = null;
@@ -128,7 +161,8 @@ function cleanProductOptions(options) {
                 value.price !== ""
             ) {
 
-                valuePrice = Number(value.price);
+                valuePrice =
+                    Number(value.price);
 
                 if (
                     !Number.isFinite(valuePrice) ||
@@ -147,19 +181,9 @@ function cleanProductOptions(options) {
             }
 
             const valueImage =
-                String(value.image || "").trim();
-
-            /*
-             * Optional stock attached to an option value.
-             *
-             * This allows things like:
-             *
-             * Black = 5
-             * Blue = 2
-             *
-             * The more advanced variant-stock system is
-             * handled separately below.
-             */
+                String(
+                    value.image || ""
+                ).trim();
 
             let valueStock = null;
 
@@ -220,6 +244,21 @@ function cleanProductOptions(options) {
 
 /* =====================================================
 VARIANT STOCK VALIDATION
+
+Example:
+
+{
+    "Color:Black": 5,
+    "Color:Blue": 2
+}
+
+Multiple options:
+
+{
+    "Color:Black|Size:M": 4,
+    "Color:Black|Size:L": 2,
+    "Color:Blue|Size:M": 7
+}
 ===================================================== */
 
 function cleanVariantStock(variantStock) {
@@ -273,7 +312,8 @@ function cleanVariantStock(variantStock) {
 
         }
 
-        cleaned[cleanKey] = stock;
+        cleaned[cleanKey] =
+            stock;
 
     }
 
@@ -314,7 +354,7 @@ function cleanStock(stock) {
 }
 
 /* =====================================================
-VARIANT KEY CREATION
+VARIANT KEY
 ===================================================== */
 
 function createVariantKey(selectedOptions) {
@@ -332,9 +372,13 @@ function createVariantKey(selectedOptions) {
         .map(selection => {
 
             return (
-                String(selection.name).trim() +
+                String(
+                    selection.name
+                ).trim() +
                 ":" +
-                String(selection.value).trim()
+                String(
+                    selection.value
+                ).trim()
             );
 
         })
@@ -342,10 +386,292 @@ function createVariantKey(selectedOptions) {
 }
 
 /* =====================================================
+STOCK HELPERS
+===================================================== */
+
+/*
+ * Gets the stock available for a product variant.
+ *
+ * If an exact variant exists in variant_stock,
+ * that value is used.
+ *
+ * Otherwise the normal product stock is used.
+ */
+
+function getAvailableStock(
+    product,
+    variantKey
+) {
+
+    const variantStock =
+        product.variant_stock &&
+        typeof product.variant_stock === "object" &&
+        !Array.isArray(product.variant_stock)
+            ? product.variant_stock
+            : {};
+
+    if (
+        variantKey &&
+        Object.prototype.hasOwnProperty.call(
+            variantStock,
+            variantKey
+        )
+    ) {
+
+        return {
+
+            stock:
+                Number(
+                    variantStock[variantKey]
+                ) || 0,
+
+            type:
+                "variant"
+
+        };
+
+    }
+
+    return {
+
+        stock:
+            Number(product.stock) || 0,
+
+        type:
+            "product"
+
+    };
+
+}
+
+/*
+ * Updates product stock after an order.
+ */
+
+async function decreaseProductStock(
+    client,
+    productId,
+    variantKey,
+    quantity
+) {
+
+    const productResult =
+        await client.query(`
+            SELECT
+                id,
+                stock,
+                variant_stock
+            FROM products
+            WHERE id = $1
+            FOR UPDATE
+        `, [
+            productId
+        ]);
+
+    const product =
+        productResult.rows[0];
+
+    if (!product) {
+
+        throw new Error(
+            "Product not found."
+        );
+
+    }
+
+    const stockInfo =
+        getAvailableStock(
+            product,
+            variantKey
+        );
+
+    if (
+        stockInfo.stock <
+        quantity
+    ) {
+
+        if (
+            stockInfo.stock === 0
+        ) {
+
+            throw new Error(
+                "Product is out of stock."
+            );
+
+        }
+
+        throw new Error(
+            `Only ${stockInfo.stock} left in stock for this product.`
+        );
+
+    }
+
+    const newStock =
+        stockInfo.stock -
+        quantity;
+
+    if (
+        stockInfo.type ===
+        "variant"
+    ) {
+
+        await client.query(`
+            UPDATE products
+            SET variant_stock =
+                jsonb_set(
+                    COALESCE(
+                        variant_stock,
+                        '{}'::jsonb
+                    ),
+                    ARRAY[$1],
+                    to_jsonb($2::integer),
+                    true
+                )
+            WHERE id = $3
+        `, [
+
+            variantKey,
+
+            newStock,
+
+            productId
+
+        ]);
+
+    }
+    else {
+
+        await client.query(`
+            UPDATE products
+            SET stock = $1
+            WHERE id = $2
+        `, [
+
+            newStock,
+
+            productId
+
+        ]);
+
+    }
+
+}
+
+/*
+ * Restores stock after cancellation.
+ */
+
+async function restoreProductStock(
+    client,
+    productId,
+    variantKey,
+    quantity
+) {
+
+    const productResult =
+        await client.query(`
+            SELECT
+                id,
+                stock,
+                variant_stock
+            FROM products
+            WHERE id = $1
+            FOR UPDATE
+        `, [
+            productId
+        ]);
+
+    const product =
+        productResult.rows[0];
+
+    if (!product) {
+
+        return;
+
+    }
+
+    const variantStock =
+        product.variant_stock &&
+        typeof product.variant_stock === "object" &&
+        !Array.isArray(product.variant_stock)
+            ? product.variant_stock
+            : {};
+
+    if (
+        variantKey &&
+        Object.prototype.hasOwnProperty.call(
+            variantStock,
+            variantKey
+        )
+    ) {
+
+        const currentStock =
+            Number(
+                variantStock[variantKey]
+            ) || 0;
+
+        const newStock =
+            currentStock +
+            quantity;
+
+        await client.query(`
+            UPDATE products
+            SET variant_stock =
+                jsonb_set(
+                    COALESCE(
+                        variant_stock,
+                        '{}'::jsonb
+                    ),
+                    ARRAY[$1],
+                    to_jsonb($2::integer),
+                    true
+                )
+            WHERE id = $3
+        `, [
+
+            variantKey,
+
+            newStock,
+
+            productId
+
+        ]);
+
+    }
+    else {
+
+        const currentStock =
+            Number(
+                product.stock
+            ) || 0;
+
+        const newStock =
+            currentStock +
+            quantity;
+
+        await client.query(`
+            UPDATE products
+            SET stock = $1
+            WHERE id = $2
+        `, [
+
+            newStock,
+
+            productId
+
+        ]);
+
+    }
+
+}
+
+/* =====================================================
 DATABASE INITIALIZATION
 ===================================================== */
 
 async function initDatabase() {
+
+    /* ================= USERS ================= */
 
     await pool.query(`
         CREATE TABLE IF NOT EXISTS users (
@@ -358,6 +684,8 @@ async function initDatabase() {
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     `);
+
+    /* ================= PRODUCTS ================= */
 
     await pool.query(`
         CREATE TABLE IF NOT EXISTS products (
@@ -372,9 +700,7 @@ async function initDatabase() {
         )
     `);
 
-    /* =================================================
-       PRODUCT OPTIONS
-    ================================================= */
+    /* ================= PRODUCT OPTIONS ================= */
 
     await pool.query(`
         ALTER TABLE products
@@ -388,9 +714,7 @@ async function initDatabase() {
         WHERE options IS NULL
     `);
 
-    /* =================================================
-       PRODUCT STOCK
-    ================================================= */
+    /* ================= PRODUCT STOCK ================= */
 
     await pool.query(`
         ALTER TABLE products
@@ -404,24 +728,7 @@ async function initDatabase() {
         WHERE stock IS NULL
     `);
 
-    /* =================================================
-       VARIANT STOCK
-
-       Example:
-
-       {
-         "Color:Black": 5,
-         "Color:Blue": 2
-       }
-
-       Later, for multiple options:
-
-       {
-         "Color:Black|Size:M": 4,
-         "Color:Black|Size:L": 2,
-         "Color:Blue|Size:M": 7
-       }
-    ================================================= */
+    /* ================= VARIANT STOCK ================= */
 
     await pool.query(`
         ALTER TABLE products
@@ -435,9 +742,7 @@ async function initDatabase() {
         WHERE variant_stock IS NULL
     `);
 
-    /* =================================================
-       ORDERS
-    ================================================= */
+    /* ================= ORDERS ================= */
 
     await pool.query(`
         CREATE TABLE IF NOT EXISTS orders (
@@ -458,9 +763,7 @@ async function initDatabase() {
         )
     `);
 
-    /* =================================================
-       ORDER ITEMS
-    ================================================= */
+    /* ================= ORDER ITEMS ================= */
 
     await pool.query(`
         CREATE TABLE IF NOT EXISTS order_items (
@@ -470,14 +773,14 @@ async function initDatabase() {
             product_name TEXT NOT NULL,
             price INTEGER NOT NULL,
             quantity INTEGER NOT NULL,
-            FOREIGN KEY(order_id) REFERENCES orders(id),
-            FOREIGN KEY(product_id) REFERENCES products(id)
+            FOREIGN KEY(order_id)
+                REFERENCES orders(id),
+            FOREIGN KEY(product_id)
+                REFERENCES products(id)
         )
     `);
 
-    /* =================================================
-       EXISTING ORDER COLUMNS
-    ================================================= */
+    /* ================= EXISTING ORDER COLUMNS ================= */
 
     await pool.query(`
         ALTER TABLE orders
@@ -500,9 +803,7 @@ async function initDatabase() {
         ADD COLUMN IF NOT EXISTS payment_reference TEXT
     `);
 
-    /* =================================================
-       NEW ORDER ITEM VARIANT COLUMNS
-    ================================================= */
+    /* ================= ORDER VARIANT COLUMNS ================= */
 
     await pool.query(`
         ALTER TABLE order_items
@@ -527,13 +828,13 @@ async function initDatabase() {
     `);
 
     console.log(
-        "PostgreSQL database initialized."
+        "PostgreSQL database initialized successfully."
     );
 
 }
 
 /* =====================================================
-HOME / TEST ROUTE
+HOME
 ===================================================== */
 
 app.get("/", (req, res) => {
@@ -545,40 +846,14 @@ app.get("/", (req, res) => {
 });
 
 /* =====================================================
-START SERVER
+ADMIN MIDDLEWARE
 ===================================================== */
 
-initDatabase()
-    .then(() => {
-
-        app.listen(
-            PORT,
-            () => {
-
-                console.log(
-                    `Kaycy Mart server is running on port ${PORT}`
-                );
-
-            }
-        );
-
-    })
-    .catch(error => {
-
-        console.error(
-            "Database initialization failed:",
-            error
-        );
-
-        process.exit(1);
-
-    });
-
-/* =====================================================
-ADMIN CHECK MIDDLEWARE
-===================================================== */
-
-async function requireAdmin(req, res, next) {
+async function requireAdmin(
+    req,
+    res,
+    next
+) {
 
     const adminId =
         req.headers["x-admin-user-id"];
@@ -619,7 +894,9 @@ async function requireAdmin(req, res, next) {
 
         }
 
-        if (admin.role !== "admin") {
+        if (
+            admin.role !== "admin"
+        ) {
 
             return res.status(403).json({
                 message:
@@ -628,7 +905,8 @@ async function requireAdmin(req, res, next) {
 
         }
 
-        req.admin = admin;
+        req.admin =
+            admin;
 
         next();
 
@@ -667,34 +945,55 @@ app.post(
         try {
 
             const result =
-                await new Promise((resolve, reject) => {
+                await new Promise(
+                    (
+                        resolve,
+                        reject
+                    ) => {
 
-                    const stream =
-                        cloudinary.uploader.upload_stream(
-                            {
-                                folder:
-                                    "kaycy-mart/products",
+                        const stream =
+                            cloudinary
+                                .uploader
+                                .upload_stream(
+                                    {
+                                        folder:
+                                            "kaycy-mart/products",
 
-                                resource_type:
-                                    "image"
-                            },
+                                        resource_type:
+                                            "image"
+                                    },
 
-                            (error, result) => {
+                                    (
+                                        error,
+                                        result
+                                    ) => {
 
-                                if (error) {
-                                    reject(error);
-                                } else {
-                                    resolve(result);
-                                }
+                                        if (
+                                            error
+                                        ) {
 
-                            }
+                                            reject(
+                                                error
+                                            );
+
+                                        }
+                                        else {
+
+                                            resolve(
+                                                result
+                                            );
+
+                                        }
+
+                                    }
+                                );
+
+                        stream.end(
+                            req.file.buffer
                         );
 
-                    stream.end(
-                        req.file.buffer
-                    );
-
-                });
+                    }
+                );
 
             res.json({
 
@@ -724,234 +1023,269 @@ app.post(
 );
 
 /* =====================================================
-GET ALL PRODUCTS
+GET PRODUCTS
 ===================================================== */
 
-app.get("/api/products", async (req, res) => {
+app.get(
+    "/api/products",
+    async (req, res) => {
 
-    try {
+        try {
 
-        const result =
-            await pool.query(`
-                SELECT
-                    id,
-                    name,
-                    price,
-                    category,
-                    emoji,
-                    description,
-                    image,
-                    COALESCE(options, '[]'::jsonb) AS options,
-                    COALESCE(stock, 0) AS stock,
-                    COALESCE(
-                        variant_stock,
-                        '{}'::jsonb
-                    ) AS variant_stock
-                FROM products
-                ORDER BY id ASC
-            `);
+            const result =
+                await pool.query(`
+                    SELECT
+                        id,
+                        name,
+                        price,
+                        category,
+                        emoji,
+                        description,
+                        image,
+                        COALESCE(
+                            options,
+                            '[]'::jsonb
+                        ) AS options,
+                        COALESCE(
+                            stock,
+                            0
+                        ) AS stock,
+                        COALESCE(
+                            variant_stock,
+                            '{}'::jsonb
+                        ) AS variant_stock
+                    FROM products
+                    ORDER BY id ASC
+                `);
 
-        res.json(
-            result.rows
-        );
+            res.json(
+                result.rows
+            );
 
-    } catch (error) {
+        } catch (error) {
 
-        console.error(error);
+            console.error(error);
 
-        res.status(500).json({
-            message:
-                "Could not load products."
-        });
+            res.status(500).json({
+                message:
+                    "Could not load products."
+            });
+
+        }
 
     }
-
-});
+);
 
 /* =====================================================
 REGISTER
 ===================================================== */
 
-app.post("/api/register", async (req, res) => {
+app.post(
+    "/api/register",
+    async (req, res) => {
 
-    const {
-        name,
-        email,
-        phone,
-        password
-    } = req.body;
+        const {
+            name,
+            email,
+            phone,
+            password
+        } = req.body;
 
-    if (!name || !email || !password) {
+        if (
+            !name ||
+            !email ||
+            !password
+        ) {
 
-        return res.status(400).json({
-            message:
-                "Please fill in all required fields."
-        });
-
-    }
-
-    try {
-
-        const hashedPassword =
-            await bcrypt.hash(
-                password,
-                10
-            );
-
-        const result =
-            await pool.query(`
-                INSERT INTO users
-                (name, email, phone, password)
-                VALUES ($1, $2, $3, $4)
-                RETURNING id
-            `, [
-
-                name.trim(),
-                email.trim(),
-                phone
-                    ? phone.trim()
-                    : null,
-                hashedPassword
-
-            ]);
-
-        res.status(201).json({
-
-            message:
-                "Account created successfully!",
-
-            userId:
-                result.rows[0].id
-
-        });
-
-    } catch (error) {
-
-        if (error.code === "23505") {
-
-            return res.status(409).json({
+            return res.status(400).json({
                 message:
-                    "That email is already registered."
+                    "Please fill in all required fields."
             });
 
         }
 
-        console.error(error);
+        try {
 
-        res.status(500).json({
-            message:
-                "Something went wrong."
-        });
+            const hashedPassword =
+                await bcrypt.hash(
+                    password,
+                    10
+                );
+
+            const result =
+                await pool.query(`
+                    INSERT INTO users
+                    (
+                        name,
+                        email,
+                        phone,
+                        password
+                    )
+                    VALUES
+                    ($1, $2, $3, $4)
+                    RETURNING id
+                `, [
+
+                    name.trim(),
+
+                    email.trim(),
+
+                    phone
+                        ? phone.trim()
+                        : null,
+
+                    hashedPassword
+
+                ]);
+
+            res.status(201).json({
+
+                message:
+                    "Account created successfully!",
+
+                userId:
+                    result.rows[0].id
+
+            });
+
+        } catch (error) {
+
+            if (
+                error.code === "23505"
+            ) {
+
+                return res.status(409).json({
+                    message:
+                        "That email is already registered."
+                });
+
+            }
+
+            console.error(error);
+
+            res.status(500).json({
+                message:
+                    "Something went wrong."
+            });
+
+        }
 
     }
-
-});
+);
 
 /* =====================================================
 LOGIN
 ===================================================== */
 
-app.post("/api/login", async (req, res) => {
+app.post(
+    "/api/login",
+    async (req, res) => {
 
-    const {
-        email,
-        password
-    } = req.body;
+        const {
+            email,
+            password
+        } = req.body;
 
-    if (!email || !password) {
+        if (
+            !email ||
+            !password
+        ) {
 
-        return res.status(400).json({
-            message:
-                "Please enter your email and password."
-        });
-
-    }
-
-    try {
-
-        const result =
-            await pool.query(`
-                SELECT
-                    id,
-                    name,
-                    email,
-                    phone,
-                    password,
-                    role
-                FROM users
-                WHERE LOWER(email) = LOWER($1)
-            `, [
-                email.trim()
-            ]);
-
-        const user =
-            result.rows[0];
-
-        if (!user) {
-
-            return res.status(401).json({
+            return res.status(400).json({
                 message:
-                    "Invalid email or password."
+                    "Please enter your email and password."
             });
 
         }
 
-        const passwordMatches =
-            await bcrypt.compare(
-                password,
-                user.password
-            );
+        try {
 
-        if (!passwordMatches) {
+            const result =
+                await pool.query(`
+                    SELECT
+                        id,
+                        name,
+                        email,
+                        phone,
+                        password,
+                        role
+                    FROM users
+                    WHERE LOWER(email) =
+                        LOWER($1)
+                `, [
+                    email.trim()
+                ]);
 
-            return res.status(401).json({
-                message:
-                    "Invalid email or password."
-            });
+            const user =
+                result.rows[0];
 
-        }
+            if (!user) {
 
-        res.json({
-
-            message:
-                "Login successful!",
-
-            user: {
-
-                id:
-                    user.id,
-
-                name:
-                    user.name,
-
-                email:
-                    user.email,
-
-                phone:
-                    user.phone || "",
-
-                role:
-                    user.role || "customer"
+                return res.status(401).json({
+                    message:
+                        "Invalid email or password."
+                });
 
             }
 
-        });
+            const passwordMatches =
+                await bcrypt.compare(
+                    password,
+                    user.password
+                );
 
-    } catch (error) {
+            if (!passwordMatches) {
 
-        console.error(error);
+                return res.status(401).json({
+                    message:
+                        "Invalid email or password."
+                });
 
-        res.status(500).json({
-            message:
-                "Something went wrong."
-        });
+            }
+
+            res.json({
+
+                message:
+                    "Login successful!",
+
+                user: {
+
+                    id:
+                        user.id,
+
+                    name:
+                        user.name,
+
+                    email:
+                        user.email,
+
+                    phone:
+                        user.phone || "",
+
+                    role:
+                        user.role ||
+                        "customer"
+
+                }
+
+            });
+
+        } catch (error) {
+
+            console.error(error);
+
+            res.status(500).json({
+                message:
+                    "Something went wrong."
+            });
+
+        }
 
     }
-
-});
+);
 
 /* =====================================================
-FORGOT PASSWORD — CHECK ACCOUNT
+FORGOT PASSWORD
 ===================================================== */
 
 app.post(
@@ -979,7 +1313,8 @@ app.post(
                         id,
                         email
                     FROM users
-                    WHERE LOWER(email) = LOWER($1)
+                    WHERE LOWER(email) =
+                        LOWER($1)
                 `, [
                     email.trim()
                 ]);
@@ -1028,7 +1363,10 @@ app.post(
             newPassword
         } = req.body;
 
-        if (!email || !newPassword) {
+        if (
+            !email ||
+            !newPassword
+        ) {
 
             return res.status(400).json({
                 message:
@@ -1037,7 +1375,9 @@ app.post(
 
         }
 
-        if (newPassword.length < 6) {
+        if (
+            newPassword.length < 6
+        ) {
 
             return res.status(400).json({
                 message:
@@ -1050,10 +1390,10 @@ app.post(
 
             const result =
                 await pool.query(`
-                    SELECT
-                        id
+                    SELECT id
                     FROM users
-                    WHERE LOWER(email) = LOWER($1)
+                    WHERE LOWER(email) =
+                        LOWER($1)
                 `, [
                     email.trim()
                 ]);
@@ -1083,6 +1423,7 @@ app.post(
             `, [
 
                 hashedPassword,
+
                 user.id
 
             ]);
@@ -1140,7 +1481,10 @@ app.post(
 
         }
 
-        if (!deliveryAddress || !city) {
+        if (
+            !deliveryAddress ||
+            !city
+        ) {
 
             return res.status(400).json({
                 message:
@@ -1151,6 +1495,9 @@ app.post(
 
         const client =
             await pool.connect();
+
+        let transactionStarted =
+            false;
 
         try {
 
@@ -1176,22 +1523,25 @@ app.post(
 
             }
 
-
             await client.query(
                 "BEGIN"
             );
 
+            transactionStarted =
+                true;
 
             let total = 0;
 
             const orderItems = [];
 
-
             /* =================================================
-               VALIDATE ORDER ITEMS
+            PROCESS EACH ORDER ITEM
             ================================================= */
 
-            for (const item of items) {
+            for (
+                const item
+                of items
+            ) {
 
                 if (
                     !item.productId ||
@@ -1205,17 +1555,12 @@ app.post(
 
                 }
 
-
                 const quantity =
-                    Number(item.quantity);
+                    Number(
+                        item.quantity
+                    );
 
-
-                /* =================================================
-                   LOCK PRODUCT ROW
-
-                   FOR UPDATE prevents two simultaneous orders
-                   from purchasing the same remaining stock.
-                ================================================= */
+                /* ================= PRODUCT LOCK ================= */
 
                 const productResult =
                     await client.query(`
@@ -1234,10 +1579,8 @@ app.post(
                         item.productId
                     ]);
 
-
                 const product =
                     productResult.rows[0];
-
 
                 if (!product) {
 
@@ -1247,29 +1590,23 @@ app.post(
 
                 }
 
-
                 const productOptions =
                     Array.isArray(
                         product.options
                     )
-                    ? product.options
-                    : [];
-
+                        ? product.options
+                        : [];
 
                 const selectedOptions =
                     Array.isArray(
                         item.selectedOptions
                     )
-                    ? item.selectedOptions
-                    : [];
-
+                        ? item.selectedOptions
+                        : [];
 
                 const cleanedSelections = [];
 
-
-                /* =================================================
-                   SIMPLE PRODUCT
-                ================================================= */
+                /* ================= SIMPLE PRODUCT ================= */
 
                 if (
                     productOptions.length === 0
@@ -1287,10 +1624,7 @@ app.post(
 
                 }
 
-
-                /* =================================================
-                   VALIDATE SELECTED OPTIONS
-                ================================================= */
+                /* ================= VALIDATE OPTIONS ================= */
 
                 for (
                     const selection
@@ -1309,18 +1643,15 @@ app.post(
 
                     }
 
-
                     const optionName =
                         String(
                             selection.name
                         ).trim();
 
-
                     const valueName =
                         String(
                             selection.value
                         ).trim();
-
 
                     const productOption =
                         productOptions.find(
@@ -1328,13 +1659,12 @@ app.post(
                                 String(
                                     option.name
                                 )
-                                .trim()
-                                .toLowerCase()
+                                    .trim()
+                                    .toLowerCase()
                                 ===
                                 optionName
                                     .toLowerCase()
                         );
-
 
                     if (!productOption) {
 
@@ -1344,24 +1674,22 @@ app.post(
 
                     }
 
-
                     const optionValue =
                         Array.isArray(
                             productOption.values
                         )
-                        ? productOption.values.find(
-                            value =>
-                                String(
-                                    value.name
-                                )
-                                .trim()
-                                .toLowerCase()
-                                ===
-                                valueName
-                                    .toLowerCase()
-                        )
-                        : null;
-
+                            ? productOption.values.find(
+                                value =>
+                                    String(
+                                        value.name
+                                    )
+                                        .trim()
+                                        .toLowerCase()
+                                    ===
+                                    valueName
+                                        .toLowerCase()
+                            )
+                            : null;
 
                     if (!optionValue) {
 
@@ -1370,7 +1698,6 @@ app.post(
                         );
 
                     }
-
 
                     cleanedSelections.push({
 
@@ -1384,10 +1711,7 @@ app.post(
 
                 }
 
-
-                /* =================================================
-                   REQUIRE ALL PRODUCT OPTIONS
-                ================================================= */
+                /* ================= REQUIRE ALL OPTIONS ================= */
 
                 if (
                     productOptions.length > 0
@@ -1412,7 +1736,6 @@ app.post(
                                         .toLowerCase()
                             );
 
-
                         if (!selected) {
 
                             throw new Error(
@@ -1425,16 +1748,12 @@ app.post(
 
                 }
 
-
-                /* =================================================
-                   VARIANT KEY
-                ================================================= */
+                /* ================= VARIANT KEY ================= */
 
                 let variantKey =
                     String(
                         item.variantKey || ""
                     ).trim();
-
 
                 if (
                     !variantKey &&
@@ -1448,90 +1767,15 @@ app.post(
 
                 }
 
-
-                /* =================================================
-                   DETERMINE AVAILABLE STOCK
-                ================================================= */
-
-                const variantStock =
-                    product.variant_stock &&
-                    typeof product.variant_stock === "object" &&
-                    !Array.isArray(
-                        product.variant_stock
-                    )
-                    ? product.variant_stock
-                    : {};
-
-
-                let availableStock =
-                    Number(product.stock) || 0;
-
-
-                let stockType =
-                    "product";
-
-
-                /*
-                 * If this exact variant exists in
-                 * variant_stock, use that quantity.
-                 */
-
-                if (
-                    variantKey &&
-                    Object.prototype.hasOwnProperty.call(
-                        variantStock,
-                        variantKey
-                    )
-                ) {
-
-                    availableStock =
-                        Number(
-                            variantStock[variantKey]
-                        ) || 0;
-
-                    stockType =
-                        "variant";
-
-                }
-
-
-                /* =================================================
-                   STOCK CHECK
-                ================================================= */
-
-                if (
-                    availableStock < quantity
-                ) {
-
-                    if (
-                        availableStock === 0
-                    ) {
-
-                        throw new Error(
-                            `${product.name} is out of stock.`
-                        );
-
-                    }
-
-
-                    throw new Error(
-                        `Only ${availableStock} left in stock for ${product.name}.`
-                    );
-
-                }
-
-
-                /* =================================================
-                   CALCULATE REAL VARIANT PRICE
-                ================================================= */
+                /* ================= PRICE + IMAGE ================= */
 
                 let finalPrice =
-                    Number(product.price);
-
+                    Number(
+                        product.price
+                    );
 
                 let finalImage =
                     product.image || "";
-
 
                 for (
                     const selection
@@ -1544,19 +1788,17 @@ app.post(
                                 String(
                                     option.name
                                 )
-                                .trim()
-                                .toLowerCase()
+                                    .trim()
+                                    .toLowerCase()
                                 ===
                                 selection.name
                                     .trim()
                                     .toLowerCase()
                         );
 
-
                     if (!productOption) {
                         continue;
                     }
-
 
                     const optionValue =
                         productOption.values.find(
@@ -1564,21 +1806,17 @@ app.post(
                                 String(
                                     value.name
                                 )
-                                .trim()
-                                .toLowerCase()
+                                    .trim()
+                                    .toLowerCase()
                                 ===
                                 selection.value
                                     .trim()
                                     .toLowerCase()
                         );
 
-
                     if (!optionValue) {
                         continue;
                     }
-
-
-                    /* ================= VARIANT PRICE ================= */
 
                     if (
                         optionValue.price !== null &&
@@ -1590,7 +1828,6 @@ app.post(
                             Number(
                                 optionValue.price
                             );
-
 
                         if (
                             Number.isFinite(
@@ -1608,9 +1845,6 @@ app.post(
 
                     }
 
-
-                    /* ================= VARIANT IMAGE ================= */
-
                     if (
                         optionValue.image
                     ) {
@@ -1624,6 +1858,34 @@ app.post(
 
                 }
 
+                /* ================= STOCK ================= */
+
+                const stockInfo =
+                    getAvailableStock(
+                        product,
+                        variantKey
+                    );
+
+                if (
+                    stockInfo.stock <
+                    quantity
+                ) {
+
+                    if (
+                        stockInfo.stock === 0
+                    ) {
+
+                        throw new Error(
+                            `${product.name} is out of stock.`
+                        );
+
+                    }
+
+                    throw new Error(
+                        `Only ${stockInfo.stock} left in stock for ${product.name}.`
+                    );
+
+                }
 
                 /* ================= TOTAL ================= */
 
@@ -1631,70 +1893,16 @@ app.post(
                     finalPrice *
                     quantity;
 
+                /* ================= DECREASE STOCK ================= */
 
-                /* =================================================
-                   REDUCE STOCK IMMEDIATELY
+                await decreaseProductStock(
+                    client,
+                    product.id,
+                    variantKey,
+                    quantity
+                );
 
-                   This happens inside the same transaction as
-                   order creation.
-                ================================================= */
-
-                if (
-                    stockType === "variant"
-                ) {
-
-                    const newVariantStock =
-                        availableStock -
-                        quantity;
-
-
-                    await client.query(`
-                        UPDATE products
-                        SET variant_stock =
-                            jsonb_set(
-                                COALESCE(
-                                    variant_stock,
-                                    '{}'::jsonb
-                                ),
-                                ARRAY[$1],
-                                to_jsonb($2::integer),
-                                true
-                            )
-                        WHERE id = $3
-                    `, [
-
-                        variantKey,
-
-                        newVariantStock,
-
-                        product.id
-
-                    ]);
-
-                }
-                else {
-
-                    const newStock =
-                        availableStock -
-                        quantity;
-
-
-                    await client.query(`
-                        UPDATE products
-                        SET stock = $1
-                        WHERE id = $2
-                    `, [
-
-                        newStock,
-
-                        product.id
-
-                    ]);
-
-                }
-
-
-                /* ================= STORE ORDER ITEM ================= */
+                /* ================= SAVE ITEM ================= */
 
                 orderItems.push({
 
@@ -1723,9 +1931,8 @@ app.post(
 
             }
 
-
             /* =================================================
-               CREATE ORDER NUMBER
+            ORDER NUMBER
             ================================================= */
 
             const orderNumber =
@@ -1734,9 +1941,8 @@ app.post(
                     .toString()
                     .slice(-8);
 
-
             /* =================================================
-               INSERT ORDER
+            CREATE ORDER
             ================================================= */
 
             const orderResult =
@@ -1776,9 +1982,11 @@ app.post(
 
                     customerName,
 
-                    customerEmail || null,
+                    customerEmail ||
+                        null,
 
-                    customerPhone || null,
+                    customerPhone ||
+                        null,
 
                     deliveryAddress,
 
@@ -1795,13 +2003,11 @@ app.post(
 
                 ]);
 
-
             const orderId =
                 orderResult.rows[0].id;
 
-
             /* =================================================
-               INSERT ORDER ITEMS
+            CREATE ORDER ITEMS
             ================================================= */
 
             for (
@@ -1856,11 +2062,12 @@ app.post(
 
             }
 
-
             await client.query(
                 "COMMIT"
             );
 
+            transactionStarted =
+                false;
 
             res.status(201).json({
 
@@ -1886,18 +2093,26 @@ app.post(
 
         } catch (error) {
 
-            try {
+            if (
+                transactionStarted
+            ) {
 
-                await client.query(
-                    "ROLLBACK"
-                );
+                try {
 
-            } catch (rollbackError) {
+                    await client.query(
+                        "ROLLBACK"
+                    );
 
-                console.error(
-                    "Rollback failed:",
+                } catch (
                     rollbackError
-                );
+                ) {
+
+                    console.error(
+                        "Rollback failed:",
+                        rollbackError
+                    );
+
+                }
 
             }
 
@@ -1906,13 +2121,7 @@ app.post(
                 error
             );
 
-
-            /*
-             * Stock errors are returned as a normal
-             * customer-facing 400 response.
-             */
-
-            const stockOrOrderErrorMessages = [
+            const expectedErrors = [
 
                 "Invalid order item.",
 
@@ -1934,16 +2143,17 @@ app.post(
 
             ];
 
-
             const isExpectedError =
-                stockOrOrderErrorMessages.some(
+                expectedErrors.some(
                     message =>
-                        error.message
-                            .includes(message)
+                        error.message.includes(
+                            message
+                        )
                 );
 
-
-            if (isExpectedError) {
+            if (
+                isExpectedError
+            ) {
 
                 return res.status(400).json({
 
@@ -1953,7 +2163,6 @@ app.post(
                 });
 
             }
-
 
             res.status(500).json({
                 message:
@@ -1970,7 +2179,7 @@ app.post(
 );
 
 /* =====================================================
-GET USER'S ORDERS
+GET USER ORDERS
 ===================================================== */
 
 app.get(
@@ -2021,7 +2230,10 @@ app.get(
 
             const ordersWithItems = [];
 
-            for (const order of orders) {
+            for (
+                const order
+                of orders
+            ) {
 
                 const itemsResult =
                     await pool.query(`
@@ -2115,6 +2327,7 @@ app.get(
                 `, [
 
                     req.params.id,
+
                     userId
 
                 ]);
@@ -2173,7 +2386,7 @@ app.get(
 );
 
 /* =====================================================
-CUSTOMER — SUBMIT PAYMENT REFERENCE
+SUBMIT PAYMENT REFERENCE
 ===================================================== */
 
 app.post(
@@ -2196,7 +2409,9 @@ app.post(
 
         if (
             !paymentReference ||
-            !String(paymentReference).trim()
+            !String(
+                paymentReference
+            ).trim()
         ) {
 
             return res.status(400).json({
@@ -2220,6 +2435,7 @@ app.post(
                 `, [
 
                     req.params.id,
+
                     userId
 
                 ]);
@@ -2252,7 +2468,8 @@ app.post(
                 UPDATE orders
                 SET
                     payment_reference = $1,
-                    payment_status = 'Payment Submitted'
+                    payment_status =
+                        'Payment Submitted'
                 WHERE id = $2
                 AND user_id = $3
             `, [
@@ -2262,6 +2479,7 @@ app.post(
                 ).trim(),
 
                 req.params.id,
+
                 userId
 
             ]);
@@ -2327,7 +2545,10 @@ app.get(
 
             const ordersWithItems = [];
 
-            for (const order of orders) {
+            for (
+                const order
+                of orders
+            ) {
 
                 const itemsResult =
                     await pool.query(`
@@ -2376,7 +2597,7 @@ app.get(
 );
 
 /* =====================================================
-ADMIN — GET ALL USERS
+ADMIN — GET USERS
 ===================================================== */
 
 app.get(
@@ -2418,7 +2639,7 @@ app.get(
 );
 
 /* =====================================================
-ADMIN — GET DASHBOARD SUMMARY
+ADMIN — DASHBOARD
 ===================================================== */
 
 app.get(
@@ -2612,7 +2833,7 @@ app.patch(
 );
 
 /* =====================================================
-ADMIN — MARK PAYMENT FAILED
+ADMIN — PAYMENT FAILED
 ===================================================== */
 
 app.patch(
@@ -2722,7 +2943,9 @@ app.post(
             Number(price);
 
         if (
-            !Number.isFinite(productPrice) ||
+            !Number.isFinite(
+                productPrice
+            ) ||
             productPrice < 0
         ) {
 
@@ -2810,11 +3033,14 @@ app.post(
 
                     category.trim(),
 
-                    emoji || "",
+                    emoji ||
+                        "",
 
-                    description || "",
+                    description ||
+                        "",
 
-                    image || "",
+                    image ||
+                        "",
 
                     JSON.stringify(
                         cleanedOptions
@@ -2890,7 +3116,9 @@ app.patch(
             Number(price);
 
         if (
-            !Number.isFinite(productPrice) ||
+            !Number.isFinite(
+                productPrice
+            ) ||
             productPrice < 0
         ) {
 
@@ -2942,10 +3170,10 @@ app.patch(
                     req.params.id
                 ]);
 
-            const existingProduct =
-                existingProductResult.rows[0];
-
-            if (!existingProduct) {
+            if (
+                existingProductResult
+                    .rows.length === 0
+            ) {
 
                 return res.status(404).json({
                     message:
@@ -2977,11 +3205,14 @@ app.patch(
 
                 category.trim(),
 
-                emoji || "",
+                emoji ||
+                    "",
 
-                description || "",
+                description ||
+                    "",
 
-                image || "",
+                image ||
+                    "",
 
                 JSON.stringify(
                     cleanedOptions
@@ -3090,7 +3321,9 @@ app.delete(
                         .count
                 );
 
-            if (usedInOrders > 0) {
+            if (
+                usedInOrders > 0
+            ) {
 
                 return res.status(409).json({
                     message:
@@ -3112,7 +3345,9 @@ app.delete(
                     "Product deleted successfully!",
 
                 productId:
-                    Number(req.params.id)
+                    Number(
+                        req.params.id
+                    )
 
             });
 
@@ -3132,6 +3367,11 @@ app.delete(
 
 /* =====================================================
 ADMIN — UPDATE ORDER STATUS
+
+Cancelling an order restores its stock.
+
+Re-opening a cancelled order reserves
+the stock again.
 ===================================================== */
 
 app.patch(
@@ -3160,7 +3400,9 @@ app.patch(
         ];
 
         if (
-            !allowedStatuses.includes(status)
+            !allowedStatuses.includes(
+                status
+            )
         ) {
 
             return res.status(400).json({
@@ -3172,24 +3414,46 @@ app.patch(
 
         }
 
+        const client =
+            await pool.connect();
+
+        let transactionStarted =
+            false;
+
         try {
 
-            const result =
-                await pool.query(`
-                    UPDATE orders
-                    SET status = $1
-                    WHERE id = $2
-                    RETURNING id
+            await client.query(
+                "BEGIN"
+            );
+
+            transactionStarted =
+                true;
+
+            /* ================= LOCK ORDER ================= */
+
+            const orderResult =
+                await client.query(`
+                    SELECT
+                        id,
+                        status
+                    FROM orders
+                    WHERE id = $1
+                    FOR UPDATE
                 `, [
-
-                    status,
                     req.params.id
-
                 ]);
 
-            if (
-                result.rows.length === 0
-            ) {
+            const order =
+                orderResult.rows[0];
+
+            if (!order) {
+
+                await client.query(
+                    "ROLLBACK"
+                );
+
+                transactionStarted =
+                    false;
 
                 return res.status(404).json({
                     message:
@@ -3197,6 +3461,229 @@ app.patch(
                 });
 
             }
+
+            const oldStatus =
+                order.status;
+
+            /* ================= NO CHANGE ================= */
+
+            if (
+                oldStatus === status
+            ) {
+
+                await client.query(
+                    "COMMIT"
+                );
+
+                transactionStarted =
+                    false;
+
+                return res.json({
+
+                    message:
+                        "Order status updated successfully.",
+
+                    status:
+                        status
+
+                });
+
+            }
+
+            /* =================================================
+            CANCEL ORDER
+            ================================================= */
+
+            if (
+                status === "Cancelled" &&
+                oldStatus !== "Cancelled"
+            ) {
+
+                const itemsResult =
+                    await client.query(`
+                        SELECT
+                            product_id,
+                            quantity,
+                            variant_key
+                        FROM order_items
+                        WHERE order_id = $1
+                    `, [
+                        req.params.id
+                    ]);
+
+                for (
+                    const item
+                    of itemsResult.rows
+                ) {
+
+                    if (
+                        !item.product_id
+                    ) {
+                        continue;
+                    }
+
+                    await restoreProductStock(
+
+                        client,
+
+                        item.product_id,
+
+                        item.variant_key ||
+                            "",
+
+                        Number(
+                            item.quantity
+                        ) || 0
+
+                    );
+
+                }
+
+            }
+
+            /* =================================================
+            REOPEN CANCELLED ORDER
+            ================================================= */
+
+            if (
+                oldStatus === "Cancelled" &&
+                status !== "Cancelled"
+            ) {
+
+                const itemsResult =
+                    await client.query(`
+                        SELECT
+                            product_id,
+                            quantity,
+                            variant_key
+                        FROM order_items
+                        WHERE order_id = $1
+                    `, [
+                        req.params.id
+                    ]);
+
+                /*
+                 * Check all stock first.
+                 * Because everything is inside a transaction,
+                 * if anything fails, nothing is changed.
+                 */
+
+                for (
+                    const item
+                    of itemsResult.rows
+                ) {
+
+                    if (
+                        !item.product_id
+                    ) {
+                        continue;
+                    }
+
+                    const productResult =
+                        await client.query(`
+                            SELECT
+                                id,
+                                name,
+                                stock,
+                                variant_stock
+                            FROM products
+                            WHERE id = $1
+                            FOR UPDATE
+                        `, [
+                            item.product_id
+                        ]);
+
+                    const product =
+                        productResult.rows[0];
+
+                    if (!product) {
+
+                        throw new Error(
+                            "A product in this order no longer exists."
+                        );
+
+                    }
+
+                    const stockInfo =
+                        getAvailableStock(
+                            product,
+                            item.variant_key ||
+                                ""
+                        );
+
+                    const quantity =
+                        Number(
+                            item.quantity
+                        ) || 0;
+
+                    if (
+                        stockInfo.stock <
+                        quantity
+                    ) {
+
+                        throw new Error(
+                            `Not enough stock to reopen this order. ${product.name} only has ${stockInfo.stock} left.`
+                        );
+
+                    }
+
+                }
+
+                /*
+                 * Reserve the stock now that
+                 * the order is being reopened.
+                 */
+
+                for (
+                    const item
+                    of itemsResult.rows
+                ) {
+
+                    if (
+                        !item.product_id
+                    ) {
+                        continue;
+                    }
+
+                    await decreaseProductStock(
+
+                        client,
+
+                        item.product_id,
+
+                        item.variant_key ||
+                            "",
+
+                        Number(
+                            item.quantity
+                        ) || 0
+
+                    );
+
+                }
+
+            }
+
+            /* ================= UPDATE STATUS ================= */
+
+            await client.query(`
+                UPDATE orders
+                SET status = $1
+                WHERE id = $2
+            `, [
+
+                status,
+
+                req.params.id
+
+            ]);
+
+            await client.query(
+                "COMMIT"
+            );
+
+            transactionStarted =
+                false;
 
             res.json({
 
@@ -3210,12 +3697,45 @@ app.patch(
 
         } catch (error) {
 
-            console.error(error);
+            if (
+                transactionStarted
+            ) {
 
-            res.status(500).json({
+                try {
+
+                    await client.query(
+                        "ROLLBACK"
+                    );
+
+                } catch (
+                    rollbackError
+                ) {
+
+                    console.error(
+                        "Rollback failed:",
+                        rollbackError
+                    );
+
+                }
+
+            }
+
+            console.error(
+                "Order status error:",
+                error
+            );
+
+            res.status(400).json({
+
                 message:
+                    error.message ||
                     "Could not update order status."
+
             });
+
+        } finally {
+
+            client.release();
 
         }
 
@@ -3227,10 +3747,16 @@ MULTER ERROR HANDLER
 ===================================================== */
 
 app.use(
-    (error, req, res, next) => {
+    (
+        error,
+        req,
+        res,
+        next
+    ) => {
 
         if (
-            error instanceof multer.MulterError
+            error instanceof
+            multer.MulterError
         ) {
 
             if (
@@ -3279,3 +3805,33 @@ app.use(
 
     }
 );
+
+/* =====================================================
+START SERVER
+===================================================== */
+
+initDatabase()
+    .then(() => {
+
+        app.listen(
+            PORT,
+            () => {
+
+                console.log(
+                    `Kaycy Mart server is running on port ${PORT}`
+                );
+
+            }
+        );
+
+    })
+    .catch(error => {
+
+        console.error(
+            "Database initialization failed:",
+            error
+        );
+
+        process.exit(1);
+
+    });
