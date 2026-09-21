@@ -149,6 +149,42 @@ function cleanProductOptions(options) {
             const valueImage =
                 String(value.image || "").trim();
 
+            /*
+             * Optional stock attached to an option value.
+             *
+             * This allows things like:
+             *
+             * Black = 5
+             * Blue = 2
+             *
+             * The more advanced variant-stock system is
+             * handled separately below.
+             */
+
+            let valueStock = null;
+
+            if (
+                value.stock !== undefined &&
+                value.stock !== null &&
+                value.stock !== ""
+            ) {
+
+                valueStock =
+                    Number(value.stock);
+
+                if (
+                    !Number.isInteger(valueStock) ||
+                    valueStock < 0
+                ) {
+
+                    throw new Error(
+                        `Invalid stock for "${valueName}" in "${optionName}".`
+                    );
+
+                }
+
+            }
+
             cleanedValues.push({
 
                 name:
@@ -158,7 +194,10 @@ function cleanProductOptions(options) {
                     valuePrice,
 
                 image:
-                    valueImage
+                    valueImage,
+
+                stock:
+                    valueStock
 
             });
 
@@ -177,6 +216,129 @@ function cleanProductOptions(options) {
     }
 
     return cleanedOptions;
+}
+
+/* =====================================================
+VARIANT STOCK VALIDATION
+===================================================== */
+
+function cleanVariantStock(variantStock) {
+
+    if (
+        variantStock === undefined ||
+        variantStock === null ||
+        variantStock === ""
+    ) {
+
+        return {};
+
+    }
+
+    if (
+        typeof variantStock !== "object" ||
+        Array.isArray(variantStock)
+    ) {
+
+        throw new Error(
+            "Variant stock must be an object."
+        );
+
+    }
+
+    const cleaned = {};
+
+    for (
+        const [key, value]
+        of Object.entries(variantStock)
+    ) {
+
+        const cleanKey =
+            String(key).trim();
+
+        if (!cleanKey) {
+            continue;
+        }
+
+        const stock =
+            Number(value);
+
+        if (
+            !Number.isInteger(stock) ||
+            stock < 0
+        ) {
+
+            throw new Error(
+                `Invalid stock for variant "${cleanKey}".`
+            );
+
+        }
+
+        cleaned[cleanKey] = stock;
+
+    }
+
+    return cleaned;
+}
+
+/* =====================================================
+GENERAL STOCK VALIDATION
+===================================================== */
+
+function cleanStock(stock) {
+
+    if (
+        stock === undefined ||
+        stock === null ||
+        stock === ""
+    ) {
+
+        return 0;
+
+    }
+
+    const cleanStockValue =
+        Number(stock);
+
+    if (
+        !Number.isInteger(cleanStockValue) ||
+        cleanStockValue < 0
+    ) {
+
+        throw new Error(
+            "Stock must be a whole number greater than or equal to 0."
+        );
+
+    }
+
+    return cleanStockValue;
+}
+
+/* =====================================================
+VARIANT KEY CREATION
+===================================================== */
+
+function createVariantKey(selectedOptions) {
+
+    if (
+        !Array.isArray(selectedOptions) ||
+        selectedOptions.length === 0
+    ) {
+
+        return "";
+
+    }
+
+    return selectedOptions
+        .map(selection => {
+
+            return (
+                String(selection.name).trim() +
+                ":" +
+                String(selection.value).trim()
+            );
+
+        })
+        .join("|");
 }
 
 /* =====================================================
@@ -224,6 +386,53 @@ async function initDatabase() {
         UPDATE products
         SET options = '[]'::jsonb
         WHERE options IS NULL
+    `);
+
+    /* =================================================
+       PRODUCT STOCK
+    ================================================= */
+
+    await pool.query(`
+        ALTER TABLE products
+        ADD COLUMN IF NOT EXISTS stock INTEGER
+        DEFAULT 0
+    `);
+
+    await pool.query(`
+        UPDATE products
+        SET stock = 0
+        WHERE stock IS NULL
+    `);
+
+    /* =================================================
+       VARIANT STOCK
+
+       Example:
+
+       {
+         "Color:Black": 5,
+         "Color:Blue": 2
+       }
+
+       Later, for multiple options:
+
+       {
+         "Color:Black|Size:M": 4,
+         "Color:Black|Size:L": 2,
+         "Color:Blue|Size:M": 7
+       }
+    ================================================= */
+
+    await pool.query(`
+        ALTER TABLE products
+        ADD COLUMN IF NOT EXISTS variant_stock JSONB
+        DEFAULT '{}'::jsonb
+    `);
+
+    await pool.query(`
+        UPDATE products
+        SET variant_stock = '{}'::jsonb
+        WHERE variant_stock IS NULL
     `);
 
     /* =================================================
@@ -293,9 +502,6 @@ async function initDatabase() {
 
     /* =================================================
        NEW ORDER ITEM VARIANT COLUMNS
-
-       These store the exact variant selected by
-       the customer.
     ================================================= */
 
     await pool.query(`
@@ -535,7 +741,12 @@ app.get("/api/products", async (req, res) => {
                     emoji,
                     description,
                     image,
-                    COALESCE(options, '[]'::jsonb) AS options
+                    COALESCE(options, '[]'::jsonb) AS options,
+                    COALESCE(stock, 0) AS stock,
+                    COALESCE(
+                        variant_stock,
+                        '{}'::jsonb
+                    ) AS variant_stock
                 FROM products
                 ORDER BY id ASC
             `);
@@ -966,6 +1177,11 @@ app.post(
             }
 
 
+            await client.query(
+                "BEGIN"
+            );
+
+
             let total = 0;
 
             const orderItems = [];
@@ -983,13 +1199,23 @@ app.post(
                     Number(item.quantity) < 1
                 ) {
 
-                    return res.status(400).json({
-                        message:
-                            "Invalid order item."
-                    });
+                    throw new Error(
+                        "Invalid order item."
+                    );
 
                 }
 
+
+                const quantity =
+                    Number(item.quantity);
+
+
+                /* =================================================
+                   LOCK PRODUCT ROW
+
+                   FOR UPDATE prevents two simultaneous orders
+                   from purchasing the same remaining stock.
+                ================================================= */
 
                 const productResult =
                     await client.query(`
@@ -998,9 +1224,12 @@ app.post(
                             name,
                             price,
                             image,
-                            options
+                            options,
+                            stock,
+                            variant_stock
                         FROM products
                         WHERE id = $1
+                        FOR UPDATE
                     `, [
                         item.productId
                     ]);
@@ -1012,26 +1241,11 @@ app.post(
 
                 if (!product) {
 
-                    return res.status(404).json({
-                        message:
-                            "Product not found."
-                    });
+                    throw new Error(
+                        "Product not found."
+                    );
 
                 }
-
-
-                const quantity =
-                    Number(item.quantity);
-
-
-                /* ================= SELECTED OPTIONS ================= */
-
-                const selectedOptions =
-                    Array.isArray(
-                        item.selectedOptions
-                    )
-                    ? item.selectedOptions
-                    : [];
 
 
                 const productOptions =
@@ -1039,6 +1253,14 @@ app.post(
                         product.options
                     )
                     ? product.options
+                    : [];
+
+
+                const selectedOptions =
+                    Array.isArray(
+                        item.selectedOptions
+                    )
+                    ? item.selectedOptions
                     : [];
 
 
@@ -1057,10 +1279,9 @@ app.post(
                         selectedOptions.length > 0
                     ) {
 
-                        return res.status(400).json({
-                            message:
-                                `Product "${product.name}" does not have selectable options.`
-                        });
+                        throw new Error(
+                            `Product "${product.name}" does not have selectable options.`
+                        );
 
                     }
 
@@ -1068,7 +1289,7 @@ app.post(
 
 
                 /* =================================================
-                   VALIDATE EACH SELECTED OPTION
+                   VALIDATE SELECTED OPTIONS
                 ================================================= */
 
                 for (
@@ -1082,10 +1303,9 @@ app.post(
                         !selection.value
                     ) {
 
-                        return res.status(400).json({
-                            message:
-                                "Invalid product option selection."
-                        });
+                        throw new Error(
+                            "Invalid product option selection."
+                        );
 
                     }
 
@@ -1118,10 +1338,9 @@ app.post(
 
                     if (!productOption) {
 
-                        return res.status(400).json({
-                            message:
-                                `Invalid option "${optionName}" for ${product.name}.`
-                        });
+                        throw new Error(
+                            `Invalid option "${optionName}" for ${product.name}.`
+                        );
 
                     }
 
@@ -1146,10 +1365,9 @@ app.post(
 
                     if (!optionValue) {
 
-                        return res.status(400).json({
-                            message:
-                                `Invalid value "${valueName}" for ${optionName}.`
-                        });
+                        throw new Error(
+                            `Invalid value "${valueName}" for ${optionName}.`
+                        );
 
                     }
 
@@ -1197,14 +1415,108 @@ app.post(
 
                         if (!selected) {
 
-                            return res.status(400).json({
-                                message:
-                                    `Please select ${productOption.name} for ${product.name}.`
-                            });
+                            throw new Error(
+                                `Please select ${productOption.name} for ${product.name}.`
+                            );
 
                         }
 
                     }
+
+                }
+
+
+                /* =================================================
+                   VARIANT KEY
+                ================================================= */
+
+                let variantKey =
+                    String(
+                        item.variantKey || ""
+                    ).trim();
+
+
+                if (
+                    !variantKey &&
+                    cleanedSelections.length > 0
+                ) {
+
+                    variantKey =
+                        createVariantKey(
+                            cleanedSelections
+                        );
+
+                }
+
+
+                /* =================================================
+                   DETERMINE AVAILABLE STOCK
+                ================================================= */
+
+                const variantStock =
+                    product.variant_stock &&
+                    typeof product.variant_stock === "object" &&
+                    !Array.isArray(
+                        product.variant_stock
+                    )
+                    ? product.variant_stock
+                    : {};
+
+
+                let availableStock =
+                    Number(product.stock) || 0;
+
+
+                let stockType =
+                    "product";
+
+
+                /*
+                 * If this exact variant exists in
+                 * variant_stock, use that quantity.
+                 */
+
+                if (
+                    variantKey &&
+                    Object.prototype.hasOwnProperty.call(
+                        variantStock,
+                        variantKey
+                    )
+                ) {
+
+                    availableStock =
+                        Number(
+                            variantStock[variantKey]
+                        ) || 0;
+
+                    stockType =
+                        "variant";
+
+                }
+
+
+                /* =================================================
+                   STOCK CHECK
+                ================================================= */
+
+                if (
+                    availableStock < quantity
+                ) {
+
+                    if (
+                        availableStock === 0
+                    ) {
+
+                        throw new Error(
+                            `${product.name} is out of stock.`
+                        );
+
+                    }
+
+
+                    throw new Error(
+                        `Only ${availableStock} left in stock for ${product.name}.`
+                    );
 
                 }
 
@@ -1313,37 +1625,73 @@ app.post(
                 }
 
 
-                /* =================================================
-                   VARIANT KEY
-                ================================================= */
-
-                let variantKey =
-                    String(
-                        item.variantKey || ""
-                    ).trim();
-
-
-                if (
-                    !variantKey &&
-                    cleanedSelections.length > 0
-                ) {
-
-                    variantKey =
-                        cleanedSelections
-                            .map(
-                                selection =>
-                                    `${selection.name}:${selection.value}`
-                            )
-                            .join("|");
-
-                }
-
-
                 /* ================= TOTAL ================= */
 
                 total +=
                     finalPrice *
                     quantity;
+
+
+                /* =================================================
+                   REDUCE STOCK IMMEDIATELY
+
+                   This happens inside the same transaction as
+                   order creation.
+                ================================================= */
+
+                if (
+                    stockType === "variant"
+                ) {
+
+                    const newVariantStock =
+                        availableStock -
+                        quantity;
+
+
+                    await client.query(`
+                        UPDATE products
+                        SET variant_stock =
+                            jsonb_set(
+                                COALESCE(
+                                    variant_stock,
+                                    '{}'::jsonb
+                                ),
+                                ARRAY[$1],
+                                to_jsonb($2::integer),
+                                true
+                            )
+                        WHERE id = $3
+                    `, [
+
+                        variantKey,
+
+                        newVariantStock,
+
+                        product.id
+
+                    ]);
+
+                }
+                else {
+
+                    const newStock =
+                        availableStock -
+                        quantity;
+
+
+                    await client.query(`
+                        UPDATE products
+                        SET stock = $1
+                        WHERE id = $2
+                    `, [
+
+                        newStock,
+
+                        product.id
+
+                    ]);
+
+                }
 
 
                 /* ================= STORE ORDER ITEM ================= */
@@ -1385,11 +1733,6 @@ app.post(
                 Date.now()
                     .toString()
                     .slice(-8);
-
-
-            await client.query(
-                "BEGIN"
-            );
 
 
             /* =================================================
@@ -1562,6 +1905,55 @@ app.post(
                 "Create order error:",
                 error
             );
+
+
+            /*
+             * Stock errors are returned as a normal
+             * customer-facing 400 response.
+             */
+
+            const stockOrOrderErrorMessages = [
+
+                "Invalid order item.",
+
+                "Product not found.",
+
+                "Invalid product option selection.",
+
+                "does not have selectable options.",
+
+                "Invalid option",
+
+                "Invalid value",
+
+                "Please select",
+
+                "out of stock.",
+
+                "left in stock for"
+
+            ];
+
+
+            const isExpectedError =
+                stockOrOrderErrorMessages.some(
+                    message =>
+                        error.message
+                            .includes(message)
+                );
+
+
+            if (isExpectedError) {
+
+                return res.status(400).json({
+
+                    message:
+                        error.message
+
+                });
+
+            }
+
 
             res.status(500).json({
                 message:
@@ -2308,7 +2700,9 @@ app.post(
             emoji,
             description,
             image,
-            options
+            options,
+            stock,
+            variantStock
         } = req.body;
 
         if (
@@ -2340,12 +2734,24 @@ app.post(
         }
 
         let cleanedOptions;
+        let cleanedStock;
+        let cleanedVariantStock;
 
         try {
 
             cleanedOptions =
                 cleanProductOptions(
                     options
+                );
+
+            cleanedStock =
+                cleanStock(
+                    stock
+                );
+
+            cleanedVariantStock =
+                cleanVariantStock(
+                    variantStock
                 );
 
         } catch (error) {
@@ -2368,7 +2774,9 @@ app.post(
                         emoji,
                         description,
                         image,
-                        options
+                        options,
+                        stock,
+                        variant_stock
                     )
                     VALUES (
                         $1,
@@ -2377,7 +2785,9 @@ app.post(
                         $4,
                         $5,
                         $6,
-                        $7::jsonb
+                        $7::jsonb,
+                        $8,
+                        $9::jsonb
                     )
                     RETURNING
                         id,
@@ -2387,7 +2797,9 @@ app.post(
                         emoji,
                         description,
                         image,
-                        options
+                        options,
+                        stock,
+                        variant_stock
                 `, [
 
                     name.trim(),
@@ -2406,6 +2818,12 @@ app.post(
 
                     JSON.stringify(
                         cleanedOptions
+                    ),
+
+                    cleanedStock,
+
+                    JSON.stringify(
+                        cleanedVariantStock
                     )
 
                 ]);
@@ -2450,7 +2868,9 @@ app.patch(
             emoji,
             description,
             image,
-            options
+            options,
+            stock,
+            variantStock
         } = req.body;
 
         if (
@@ -2482,12 +2902,24 @@ app.patch(
         }
 
         let cleanedOptions;
+        let cleanedStock;
+        let cleanedVariantStock;
 
         try {
 
             cleanedOptions =
                 cleanProductOptions(
                     options
+                );
+
+            cleanedStock =
+                cleanStock(
+                    stock
+                );
+
+            cleanedVariantStock =
+                cleanVariantStock(
+                    variantStock
                 );
 
         } catch (error) {
@@ -2531,8 +2963,10 @@ app.patch(
                     emoji = $4,
                     description = $5,
                     image = $6,
-                    options = $7::jsonb
-                WHERE id = $8
+                    options = $7::jsonb,
+                    stock = $8,
+                    variant_stock = $9::jsonb
+                WHERE id = $10
             `, [
 
                 name.trim(),
@@ -2553,6 +2987,12 @@ app.patch(
                     cleanedOptions
                 ),
 
+                cleanedStock,
+
+                JSON.stringify(
+                    cleanedVariantStock
+                ),
+
                 req.params.id
 
             ]);
@@ -2567,7 +3007,9 @@ app.patch(
                         emoji,
                         description,
                         image,
-                        options
+                        options,
+                        stock,
+                        variant_stock
                     FROM products
                     WHERE id = $1
                 `, [
@@ -2833,7 +3275,7 @@ app.use(
 
         }
 
-        next();
+        next(error);
 
     }
 );
