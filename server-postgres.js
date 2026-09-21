@@ -211,9 +211,7 @@ async function initDatabase() {
     `);
 
     /* =================================================
-       NEW PRODUCT OPTIONS COLUMN
-
-       Existing products automatically receive [].
+       PRODUCT OPTIONS
     ================================================= */
 
     await pool.query(`
@@ -227,6 +225,10 @@ async function initDatabase() {
         SET options = '[]'::jsonb
         WHERE options IS NULL
     `);
+
+    /* =================================================
+       ORDERS
+    ================================================= */
 
     await pool.query(`
         CREATE TABLE IF NOT EXISTS orders (
@@ -247,6 +249,10 @@ async function initDatabase() {
         )
     `);
 
+    /* =================================================
+       ORDER ITEMS
+    ================================================= */
+
     await pool.query(`
         CREATE TABLE IF NOT EXISTS order_items (
             id SERIAL PRIMARY KEY,
@@ -259,6 +265,10 @@ async function initDatabase() {
             FOREIGN KEY(product_id) REFERENCES products(id)
         )
     `);
+
+    /* =================================================
+       EXISTING ORDER COLUMNS
+    ================================================= */
 
     await pool.query(`
         ALTER TABLE orders
@@ -279,6 +289,35 @@ async function initDatabase() {
     await pool.query(`
         ALTER TABLE orders
         ADD COLUMN IF NOT EXISTS payment_reference TEXT
+    `);
+
+    /* =================================================
+       NEW ORDER ITEM VARIANT COLUMNS
+
+       These store the exact variant selected by
+       the customer.
+    ================================================= */
+
+    await pool.query(`
+        ALTER TABLE order_items
+        ADD COLUMN IF NOT EXISTS selected_options JSONB
+        DEFAULT '[]'::jsonb
+    `);
+
+    await pool.query(`
+        ALTER TABLE order_items
+        ADD COLUMN IF NOT EXISTS variant_key TEXT
+    `);
+
+    await pool.query(`
+        ALTER TABLE order_items
+        ADD COLUMN IF NOT EXISTS product_image TEXT
+    `);
+
+    await pool.query(`
+        UPDATE order_items
+        SET selected_options = '[]'::jsonb
+        WHERE selected_options IS NULL
     `);
 
     console.log(
@@ -904,6 +943,8 @@ app.post(
 
         try {
 
+            /* ================= USER CHECK ================= */
+
             const userResult =
                 await client.query(`
                     SELECT id
@@ -924,9 +965,15 @@ app.post(
 
             }
 
+
             let total = 0;
 
             const orderItems = [];
+
+
+            /* =================================================
+               VALIDATE ORDER ITEMS
+            ================================================= */
 
             for (const item of items) {
 
@@ -943,20 +990,25 @@ app.post(
 
                 }
 
+
                 const productResult =
                     await client.query(`
                         SELECT
                             id,
                             name,
-                            price
+                            price,
+                            image,
+                            options
                         FROM products
                         WHERE id = $1
                     `, [
                         item.productId
                     ]);
 
+
                 const product =
                     productResult.rows[0];
+
 
                 if (!product) {
 
@@ -967,12 +1019,334 @@ app.post(
 
                 }
 
+
                 const quantity =
                     Number(item.quantity);
 
+
+                /* ================= SELECTED OPTIONS ================= */
+
+                const selectedOptions =
+                    Array.isArray(
+                        item.selectedOptions
+                    )
+                    ? item.selectedOptions
+                    : [];
+
+
+                const productOptions =
+                    Array.isArray(
+                        product.options
+                    )
+                    ? product.options
+                    : [];
+
+
+                const cleanedSelections = [];
+
+
+                /* =================================================
+                   SIMPLE PRODUCT
+                ================================================= */
+
+                if (
+                    productOptions.length === 0
+                ) {
+
+                    if (
+                        selectedOptions.length > 0
+                    ) {
+
+                        return res.status(400).json({
+                            message:
+                                `Product "${product.name}" does not have selectable options.`
+                        });
+
+                    }
+
+                }
+
+
+                /* =================================================
+                   VALIDATE EACH SELECTED OPTION
+                ================================================= */
+
+                for (
+                    const selection
+                    of selectedOptions
+                ) {
+
+                    if (
+                        !selection ||
+                        !selection.name ||
+                        !selection.value
+                    ) {
+
+                        return res.status(400).json({
+                            message:
+                                "Invalid product option selection."
+                        });
+
+                    }
+
+
+                    const optionName =
+                        String(
+                            selection.name
+                        ).trim();
+
+
+                    const valueName =
+                        String(
+                            selection.value
+                        ).trim();
+
+
+                    const productOption =
+                        productOptions.find(
+                            option =>
+                                String(
+                                    option.name
+                                )
+                                .trim()
+                                .toLowerCase()
+                                ===
+                                optionName
+                                    .toLowerCase()
+                        );
+
+
+                    if (!productOption) {
+
+                        return res.status(400).json({
+                            message:
+                                `Invalid option "${optionName}" for ${product.name}.`
+                        });
+
+                    }
+
+
+                    const optionValue =
+                        Array.isArray(
+                            productOption.values
+                        )
+                        ? productOption.values.find(
+                            value =>
+                                String(
+                                    value.name
+                                )
+                                .trim()
+                                .toLowerCase()
+                                ===
+                                valueName
+                                    .toLowerCase()
+                        )
+                        : null;
+
+
+                    if (!optionValue) {
+
+                        return res.status(400).json({
+                            message:
+                                `Invalid value "${valueName}" for ${optionName}.`
+                        });
+
+                    }
+
+
+                    cleanedSelections.push({
+
+                        name:
+                            productOption.name,
+
+                        value:
+                            optionValue.name
+
+                    });
+
+                }
+
+
+                /* =================================================
+                   REQUIRE ALL PRODUCT OPTIONS
+                ================================================= */
+
+                if (
+                    productOptions.length > 0
+                ) {
+
+                    for (
+                        const productOption
+                        of productOptions
+                    ) {
+
+                        const selected =
+                            cleanedSelections.find(
+                                selection =>
+                                    selection.name
+                                        .trim()
+                                        .toLowerCase()
+                                    ===
+                                    String(
+                                        productOption.name
+                                    )
+                                        .trim()
+                                        .toLowerCase()
+                            );
+
+
+                        if (!selected) {
+
+                            return res.status(400).json({
+                                message:
+                                    `Please select ${productOption.name} for ${product.name}.`
+                            });
+
+                        }
+
+                    }
+
+                }
+
+
+                /* =================================================
+                   CALCULATE REAL VARIANT PRICE
+                ================================================= */
+
+                let finalPrice =
+                    Number(product.price);
+
+
+                let finalImage =
+                    product.image || "";
+
+
+                for (
+                    const selection
+                    of cleanedSelections
+                ) {
+
+                    const productOption =
+                        productOptions.find(
+                            option =>
+                                String(
+                                    option.name
+                                )
+                                .trim()
+                                .toLowerCase()
+                                ===
+                                selection.name
+                                    .trim()
+                                    .toLowerCase()
+                        );
+
+
+                    if (!productOption) {
+                        continue;
+                    }
+
+
+                    const optionValue =
+                        productOption.values.find(
+                            value =>
+                                String(
+                                    value.name
+                                )
+                                .trim()
+                                .toLowerCase()
+                                ===
+                                selection.value
+                                    .trim()
+                                    .toLowerCase()
+                        );
+
+
+                    if (!optionValue) {
+                        continue;
+                    }
+
+
+                    /* ================= VARIANT PRICE ================= */
+
+                    if (
+                        optionValue.price !== null &&
+                        optionValue.price !== undefined &&
+                        optionValue.price !== ""
+                    ) {
+
+                        const optionPrice =
+                            Number(
+                                optionValue.price
+                            );
+
+
+                        if (
+                            Number.isFinite(
+                                optionPrice
+                            ) &&
+                            optionPrice >= 0
+                        ) {
+
+                            finalPrice =
+                                Math.round(
+                                    optionPrice
+                                );
+
+                        }
+
+                    }
+
+
+                    /* ================= VARIANT IMAGE ================= */
+
+                    if (
+                        optionValue.image
+                    ) {
+
+                        finalImage =
+                            String(
+                                optionValue.image
+                            ).trim();
+
+                    }
+
+                }
+
+
+                /* =================================================
+                   VARIANT KEY
+                ================================================= */
+
+                let variantKey =
+                    String(
+                        item.variantKey || ""
+                    ).trim();
+
+
+                if (
+                    !variantKey &&
+                    cleanedSelections.length > 0
+                ) {
+
+                    variantKey =
+                        cleanedSelections
+                            .map(
+                                selection =>
+                                    `${selection.name}:${selection.value}`
+                            )
+                            .join("|");
+
+                }
+
+
+                /* ================= TOTAL ================= */
+
                 total +=
-                    Number(product.price) *
+                    finalPrice *
                     quantity;
+
+
+                /* ================= STORE ORDER ITEM ================= */
 
                 orderItems.push({
 
@@ -983,14 +1357,28 @@ app.post(
                         product.name,
 
                     price:
-                        Number(product.price),
+                        finalPrice,
 
                     quantity:
-                        quantity
+                        quantity,
+
+                    selectedOptions:
+                        cleanedSelections,
+
+                    variantKey:
+                        variantKey,
+
+                    productImage:
+                        finalImage
 
                 });
 
             }
+
+
+            /* =================================================
+               CREATE ORDER NUMBER
+            ================================================= */
 
             const orderNumber =
                 "KM" +
@@ -998,9 +1386,15 @@ app.post(
                     .toString()
                     .slice(-8);
 
+
             await client.query(
                 "BEGIN"
             );
+
+
+            /* =================================================
+               INSERT ORDER
+            ================================================= */
 
             const orderResult =
                 await client.query(`
@@ -1034,23 +1428,43 @@ app.post(
                 `, [
 
                     orderNumber,
+
                     userId,
+
                     customerName,
+
                     customerEmail || null,
+
                     customerPhone || null,
+
                     deliveryAddress,
+
                     city,
+
                     total,
+
                     "Order Received",
-                    paymentMethod || "Bank Transfer",
+
+                    paymentMethod ||
+                        "Bank Transfer",
+
                     "Payment Pending"
 
                 ]);
 
+
             const orderId =
                 orderResult.rows[0].id;
 
-            for (const item of orderItems) {
+
+            /* =================================================
+               INSERT ORDER ITEMS
+            ================================================= */
+
+            for (
+                const item
+                of orderItems
+            ) {
 
                 await client.query(`
                     INSERT INTO order_items (
@@ -1058,24 +1472,52 @@ app.post(
                         product_id,
                         product_name,
                         price,
-                        quantity
+                        quantity,
+                        selected_options,
+                        variant_key,
+                        product_image
                     )
-                    VALUES ($1, $2, $3, $4, $5)
+                    VALUES (
+                        $1,
+                        $2,
+                        $3,
+                        $4,
+                        $5,
+                        $6::jsonb,
+                        $7,
+                        $8
+                    )
                 `, [
 
                     orderId,
+
                     item.productId,
+
                     item.productName,
+
                     item.price,
-                    item.quantity
+
+                    item.quantity,
+
+                    JSON.stringify(
+                        item.selectedOptions
+                    ),
+
+                    item.variantKey ||
+                        null,
+
+                    item.productImage ||
+                        null
 
                 ]);
 
             }
 
+
             await client.query(
                 "COMMIT"
             );
+
 
             res.status(201).json({
 
@@ -1116,7 +1558,10 @@ app.post(
 
             }
 
-            console.error(error);
+            console.error(
+                "Create order error:",
+                error
+            );
 
             res.status(500).json({
                 message:
@@ -1193,7 +1638,10 @@ app.get(
                             product_id,
                             product_name,
                             price,
-                            quantity
+                            quantity,
+                            selected_options,
+                            variant_key,
+                            product_image
                         FROM order_items
                         WHERE order_id = $1
                     `, [
@@ -1298,7 +1746,10 @@ app.get(
                         product_id,
                         product_name,
                         price,
-                        quantity
+                        quantity,
+                        selected_options,
+                        variant_key,
+                        product_image
                     FROM order_items
                     WHERE order_id = $1
                 `, [
@@ -1493,7 +1944,10 @@ app.get(
                             product_id,
                             product_name,
                             price,
-                            quantity
+                            quantity,
+                            selected_options,
+                            variant_key,
+                            product_image
                         FROM order_items
                         WHERE order_id = $1
                     `, [
