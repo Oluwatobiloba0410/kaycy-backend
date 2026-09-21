@@ -2,6 +2,8 @@ const express = require("express");
 const { Pool } = require("pg");
 const bcrypt = require("bcryptjs");
 const cors = require("cors");
+const multer = require("multer");
+const cloudinary = require("cloudinary").v2;
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -13,6 +15,48 @@ const pool = new Pool({
 
 app.use(cors());
 app.use(express.json());
+
+/* =====================================================
+CLOUDINARY CONFIGURATION
+===================================================== */
+
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
+});
+
+/* =====================================================
+MULTER IMAGE UPLOAD CONFIGURATION
+===================================================== */
+
+const upload = multer({
+
+    storage: multer.memoryStorage(),
+
+    limits: {
+        fileSize: 5 * 1024 * 1024
+    },
+
+    fileFilter: (req, file, cb) => {
+
+        if (!file.mimetype.startsWith("image/")) {
+
+            return cb(
+                new Error("Only image files are allowed.")
+            );
+
+        }
+
+        cb(null, true);
+
+    }
+
+});
+
+/* =====================================================
+DATABASE INITIALIZATION
+===================================================== */
 
 async function initDatabase() {
 
@@ -94,6 +138,7 @@ async function initDatabase() {
     `);
 
     console.log("PostgreSQL database initialized.");
+
 }
 
 /* =====================================================
@@ -118,9 +163,11 @@ initDatabase()
         app.listen(
             PORT,
             () => {
+
                 console.log(
                     `Kaycy Mart server is running on port ${PORT}`
                 );
+
             }
         );
 
@@ -148,7 +195,8 @@ async function requireAdmin(req, res, next) {
     if (!adminId) {
 
         return res.status(401).json({
-            message: "Admin login is required."
+            message:
+                "Admin login is required."
         });
 
     }
@@ -205,6 +253,88 @@ async function requireAdmin(req, res, next) {
     }
 
 }
+
+/* =====================================================
+ADMIN — UPLOAD PRODUCT IMAGE
+===================================================== */
+
+app.post(
+    "/api/admin/upload-image",
+    requireAdmin,
+    upload.single("image"),
+    async (req, res) => {
+
+        if (!req.file) {
+
+            return res.status(400).json({
+                message:
+                    "Please select an image."
+            });
+
+        }
+
+        try {
+
+            const result =
+                await new Promise((resolve, reject) => {
+
+                    const stream =
+                        cloudinary.uploader.upload_stream(
+                            {
+                                folder:
+                                    "kaycy-mart/products",
+
+                                resource_type:
+                                    "image"
+                            },
+
+                            (error, result) => {
+
+                                if (error) {
+
+                                    reject(error);
+
+                                } else {
+
+                                    resolve(result);
+
+                                }
+
+                            }
+                        );
+
+                    stream.end(
+                        req.file.buffer
+                    );
+
+                });
+
+            res.json({
+
+                message:
+                    "Image uploaded successfully!",
+
+                imageUrl:
+                    result.secure_url
+
+            });
+
+        } catch (error) {
+
+            console.error(
+                "Cloudinary upload error:",
+                error
+            );
+
+            res.status(500).json({
+                message:
+                    "Could not upload product image."
+            });
+
+        }
+
+    }
+);
 
 /* =====================================================
 GET ALL PRODUCTS
@@ -1136,216 +1266,228 @@ app.post("/api/orders/:id/payment", async (req, res) => {
 ADMIN — GET ALL ORDERS
 ===================================================== */
 
-app.get("/api/admin/orders", requireAdmin, async (req, res) => {
+app.get(
+    "/api/admin/orders",
+    requireAdmin,
+    async (req, res) => {
 
-    try {
+        try {
 
-        const ordersResult =
-            await pool.query(`
-                SELECT
-                    id,
-                    order_number,
-                    user_id,
-                    customer_name,
-                    customer_email,
-                    customer_phone,
-                    delivery_address,
-                    city,
-                    total,
-                    status,
-                    payment_method,
-                    payment_status,
-                    payment_reference,
-                    created_at
-                FROM orders
-                ORDER BY id DESC
-            `);
-
-        const orders =
-            ordersResult.rows;
-
-        const ordersWithItems = [];
-
-        for (const order of orders) {
-
-            const itemsResult =
+            const ordersResult =
                 await pool.query(`
                     SELECT
                         id,
-                        product_id,
-                        product_name,
-                        price,
-                        quantity
-                    FROM order_items
-                    WHERE order_id = $1
-                `, [
-                    order.id
-                ]);
+                        order_number,
+                        user_id,
+                        customer_name,
+                        customer_email,
+                        customer_phone,
+                        delivery_address,
+                        city,
+                        total,
+                        status,
+                        payment_method,
+                        payment_status,
+                        payment_reference,
+                        created_at
+                    FROM orders
+                    ORDER BY id DESC
+                `);
 
-            ordersWithItems.push({
+            const orders =
+                ordersResult.rows;
 
-                ...order,
+            const ordersWithItems = [];
 
-                items:
-                    itemsResult.rows
+            for (const order of orders) {
 
+                const itemsResult =
+                    await pool.query(`
+                        SELECT
+                            id,
+                            product_id,
+                            product_name,
+                            price,
+                            quantity
+                        FROM order_items
+                        WHERE order_id = $1
+                    `, [
+                        order.id
+                    ]);
+
+                ordersWithItems.push({
+
+                    ...order,
+
+                    items:
+                        itemsResult.rows
+
+                });
+
+            }
+
+            res.json(
+                ordersWithItems
+            );
+
+        } catch (error) {
+
+            console.error(error);
+
+            res.status(500).json({
+                message:
+                    "Could not load admin orders."
             });
 
         }
 
-        res.json(
-            ordersWithItems
-        );
-
-    } catch (error) {
-
-        console.error(error);
-
-        res.status(500).json({
-            message:
-                "Could not load admin orders."
-        });
-
     }
-
-});
+);
 
 /* =====================================================
 ADMIN — GET ALL USERS
 ===================================================== */
 
-app.get("/api/admin/users", requireAdmin, async (req, res) => {
+app.get(
+    "/api/admin/users",
+    requireAdmin,
+    async (req, res) => {
 
-    try {
+        try {
 
-        const result =
-            await pool.query(`
-                SELECT
-                    id,
-                    name,
-                    email,
-                    phone,
-                    role,
-                    created_at
-                FROM users
-                ORDER BY id DESC
-            `);
+            const result =
+                await pool.query(`
+                    SELECT
+                        id,
+                        name,
+                        email,
+                        phone,
+                        role,
+                        created_at
+                    FROM users
+                    ORDER BY id DESC
+                `);
 
-        res.json(result.rows);
+            res.json(result.rows);
 
-    } catch (error) {
+        } catch (error) {
 
-        console.error(error);
+            console.error(error);
 
-        res.status(500).json({
-            message:
-                "Could not load users."
-        });
+            res.status(500).json({
+                message:
+                    "Could not load users."
+            });
+
+        }
 
     }
-
-});
+);
 
 /* =====================================================
 ADMIN — GET DASHBOARD SUMMARY
 ===================================================== */
 
-app.get("/api/admin/dashboard", requireAdmin, async (req, res) => {
+app.get(
+    "/api/admin/dashboard",
+    requireAdmin,
+    async (req, res) => {
 
-    try {
+        try {
 
-        const totalOrdersResult =
-            await pool.query(`
-                SELECT COUNT(*) AS count
-                FROM orders
-            `);
+            const totalOrdersResult =
+                await pool.query(`
+                    SELECT COUNT(*) AS count
+                    FROM orders
+                `);
 
-        const totalCustomersResult =
-            await pool.query(`
-                SELECT COUNT(*) AS count
-                FROM users
-                WHERE role = 'customer'
-            `);
+            const totalCustomersResult =
+                await pool.query(`
+                    SELECT COUNT(*) AS count
+                    FROM users
+                    WHERE role = 'customer'
+                `);
 
-        const totalProductsResult =
-            await pool.query(`
-                SELECT COUNT(*) AS count
-                FROM products
-            `);
+            const totalProductsResult =
+                await pool.query(`
+                    SELECT COUNT(*) AS count
+                    FROM products
+                `);
 
-        const totalSalesResult =
-            await pool.query(`
-                SELECT
-                    COALESCE(SUM(total), 0) AS total
-                FROM orders
-                WHERE payment_status =
-                    'Payment Confirmed'
-            `);
+            const totalSalesResult =
+                await pool.query(`
+                    SELECT
+                        COALESCE(SUM(total), 0) AS total
+                    FROM orders
+                    WHERE payment_status =
+                        'Payment Confirmed'
+                `);
 
-        const pendingOrdersResult =
-            await pool.query(`
-                SELECT COUNT(*) AS count
-                FROM orders
-                WHERE status =
-                    'Order Received'
-            `);
+            const pendingOrdersResult =
+                await pool.query(`
+                    SELECT COUNT(*) AS count
+                    FROM orders
+                    WHERE status =
+                        'Order Received'
+                `);
 
-        const pendingPaymentsResult =
-            await pool.query(`
-                SELECT COUNT(*) AS count
-                FROM orders
-                WHERE payment_status IN (
-                    'Payment Pending',
-                    'Payment Submitted'
-                )
-            `);
+            const pendingPaymentsResult =
+                await pool.query(`
+                    SELECT COUNT(*) AS count
+                    FROM orders
+                    WHERE payment_status IN (
+                        'Payment Pending',
+                        'Payment Submitted'
+                    )
+                `);
 
-        res.json({
+            res.json({
 
-            totalOrders:
-                Number(
-                    totalOrdersResult.rows[0].count
-                ),
+                totalOrders:
+                    Number(
+                        totalOrdersResult.rows[0].count
+                    ),
 
-            totalCustomers:
-                Number(
-                    totalCustomersResult.rows[0].count
-                ),
+                totalCustomers:
+                    Number(
+                        totalCustomersResult.rows[0].count
+                    ),
 
-            totalProducts:
-                Number(
-                    totalProductsResult.rows[0].count
-                ),
+                totalProducts:
+                    Number(
+                        totalProductsResult.rows[0].count
+                    ),
 
-            totalSales:
-                Number(
-                    totalSalesResult.rows[0].total
-                ),
+                totalSales:
+                    Number(
+                        totalSalesResult.rows[0].total
+                    ),
 
-            pendingOrders:
-                Number(
-                    pendingOrdersResult.rows[0].count
-                ),
+                pendingOrders:
+                    Number(
+                        pendingOrdersResult.rows[0].count
+                    ),
 
-            pendingPayments:
-                Number(
-                    pendingPaymentsResult.rows[0].count
-                )
+                pendingPayments:
+                    Number(
+                        pendingPaymentsResult.rows[0].count
+                    )
 
-        });
+            });
 
-    } catch (error) {
+        } catch (error) {
 
-        console.error(error);
+            console.error(error);
 
-        res.status(500).json({
-            message:
-                "Could not load dashboard information."
-        });
+            res.status(500).json({
+                message:
+                    "Could not load dashboard information."
+            });
+
+        }
 
     }
-
-});
+);
 
 /* =====================================================
 ADMIN — CONFIRM PAYMENT
@@ -1835,10 +1977,6 @@ app.patch(
             status
         } = req.body;
 
-        /*
-        Allowed order statuses
-        */
-
         const allowedStatuses = [
 
             "Order Received",
@@ -1913,3 +2051,54 @@ app.patch(
 
     }
 );
+
+/* =====================================================
+MULTER ERROR HANDLER
+===================================================== */
+
+app.use((error, req, res, next) => {
+
+    if (error instanceof multer.MulterError) {
+
+        if (error.code === "LIMIT_FILE_SIZE") {
+
+            return res.status(400).json({
+                message:
+                    "Image is too large. Maximum size is 5MB."
+            });
+
+        }
+
+        return res.status(400).json({
+            message:
+                "Image upload error."
+        });
+
+    }
+
+    if (error) {
+
+        if (
+            error.message ===
+            "Only image files are allowed."
+        ) {
+
+            return res.status(400).json({
+                message:
+                    error.message
+            });
+
+        }
+
+        console.error(error);
+
+        return res.status(500).json({
+            message:
+                "Something went wrong."
+        });
+
+    }
+
+    next();
+
+});
