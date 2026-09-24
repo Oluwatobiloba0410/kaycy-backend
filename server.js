@@ -844,7 +844,6 @@ app.post(
 
             });
 
-
         } catch (error) {
 
             console.error(error);
@@ -966,12 +965,6 @@ app.post(
 
                 }
 
-
-                /*
-                   IMPORTANT:
-                   Customers cannot order hidden
-                   products.
-                */
 
                 const product =
                     db.prepare(`
@@ -2154,14 +2147,6 @@ app.patch(
             }
 
 
-            /*
-               Notice:
-               We DO NOT change active here.
-
-               Editing a hidden product keeps it hidden.
-               Editing an active product keeps it active.
-            */
-
             db.prepare(`
                 UPDATE products
                 SET
@@ -2523,6 +2508,187 @@ app.patch(
 
                 message:
                     "Could not update order status."
+
+            });
+
+        }
+
+    }
+);
+
+
+/* =====================================================
+ONE-TIME ADMIN ACCOUNT SETUP
+===================================================== */
+
+app.post(
+    "/api/setup-admin",
+    async (req, res) => {
+
+        const {
+            setupKey,
+            name,
+            email,
+            password
+        } = req.body;
+
+
+        if (
+            !process.env.ADMIN_SETUP_KEY ||
+            setupKey !== process.env.ADMIN_SETUP_KEY
+        ) {
+
+            return res.status(403).json({
+
+                message:
+                    "Invalid admin setup key."
+
+            });
+
+        }
+
+
+        if (
+            !name ||
+            !email ||
+            !password
+        ) {
+
+            return res.status(400).json({
+
+                message:
+                    "Name, email and password are required."
+
+            });
+
+        }
+
+
+        if (
+            password.length < 6
+        ) {
+
+            return res.status(400).json({
+
+                message:
+                    "Password must be at least 6 characters."
+
+            });
+
+        }
+
+
+        try {
+
+            const cleanEmail =
+                email.trim().toLowerCase();
+
+
+            const existingUser =
+                db.prepare(`
+                    SELECT
+                        id,
+                        email,
+                        role
+                    FROM users
+                    WHERE LOWER(email) = LOWER(?)
+                `).get(
+                    cleanEmail
+                );
+
+
+            const hashedPassword =
+                await bcrypt.hash(
+                    password,
+                    10
+                );
+
+
+            if (existingUser) {
+
+                db.prepare(`
+                    UPDATE users
+                    SET
+                        name = ?,
+                        password = ?,
+                        role = 'admin'
+                    WHERE id = ?
+                `).run(
+
+                    name.trim(),
+
+                    hashedPassword,
+
+                    existingUser.id
+
+                );
+
+
+                return res.json({
+
+                    message:
+                        "Existing account has been converted to admin successfully.",
+
+                    userId:
+                        existingUser.id,
+
+                    email:
+                        cleanEmail,
+
+                    role:
+                        "admin"
+
+                });
+
+            }
+
+
+            const result =
+                db.prepare(`
+                    INSERT INTO users
+                    (
+                        name,
+                        email,
+                        password,
+                        role
+                    )
+                    VALUES (?, ?, ?, 'admin')
+                `).run(
+
+                    name.trim(),
+
+                    cleanEmail,
+
+                    hashedPassword
+
+                );
+
+
+            res.status(201).json({
+
+                message:
+                    "Admin account created successfully.",
+
+                userId:
+                    result.lastInsertRowid,
+
+                email:
+                    cleanEmail,
+
+                role:
+                    "admin"
+
+            });
+
+
+        } catch (error) {
+
+            console.error(error);
+
+            res.status(500).json({
+
+                message:
+                    "Could not create admin account."
 
             });
 
