@@ -37,7 +37,6 @@ MULTER
 ===================================================== */
 
 const upload = multer({
-
     storage: multer.memoryStorage(),
 
     limits: {
@@ -47,17 +46,13 @@ const upload = multer({
     fileFilter: (req, file, cb) => {
 
         if (!file.mimetype.startsWith("image/")) {
-
             return cb(
                 new Error("Only image files are allowed.")
             );
-
         }
 
         cb(null, true);
-
     }
-
 });
 
 /* =====================================================
@@ -74,11 +69,9 @@ function cleanProductOptions(options) {
     }
 
     if (!Array.isArray(options)) {
-
         throw new Error(
             "Product options must be an array."
         );
-
     }
 
     const cleanedOptions = [];
@@ -89,40 +82,30 @@ function cleanProductOptions(options) {
             !option ||
             typeof option !== "object"
         ) {
-
             throw new Error(
                 "Invalid product option."
             );
-
         }
 
         const optionName =
-            String(
-                option.name || ""
-            ).trim();
+            String(option.name || "").trim();
 
         if (!optionName) {
-
             throw new Error(
                 "Every product option must have a name."
             );
-
         }
 
         if (!Array.isArray(option.values)) {
-
             throw new Error(
                 `Option "${optionName}" must contain values.`
             );
-
         }
 
         if (option.values.length === 0) {
-
             throw new Error(
                 `Option "${optionName}" must contain at least one value.`
             );
-
         }
 
         const cleanedValues = [];
@@ -133,24 +116,18 @@ function cleanProductOptions(options) {
                 !value ||
                 typeof value !== "object"
             ) {
-
                 throw new Error(
                     `Invalid value in "${optionName}".`
                 );
-
             }
 
             const valueName =
-                String(
-                    value.name || ""
-                ).trim();
+                String(value.name || "").trim();
 
             if (!valueName) {
-
                 throw new Error(
                     `Every value in "${optionName}" must have a name.`
                 );
-
             }
 
             let valuePrice = null;
@@ -161,29 +138,22 @@ function cleanProductOptions(options) {
                 value.price !== ""
             ) {
 
-                valuePrice =
-                    Number(value.price);
+                valuePrice = Number(value.price);
 
                 if (
                     !Number.isFinite(valuePrice) ||
                     valuePrice < 0
                 ) {
-
                     throw new Error(
                         `Invalid price for "${valueName}" in "${optionName}".`
                     );
-
                 }
 
-                valuePrice =
-                    Math.round(valuePrice);
-
+                valuePrice = Math.round(valuePrice);
             }
 
             const valueImage =
-                String(
-                    value.image || ""
-                ).trim();
+                String(value.image || "").trim();
 
             let valueStock = null;
 
@@ -193,50 +163,30 @@ function cleanProductOptions(options) {
                 value.stock !== ""
             ) {
 
-                valueStock =
-                    Number(value.stock);
+                valueStock = Number(value.stock);
 
                 if (
                     !Number.isInteger(valueStock) ||
                     valueStock < 0
                 ) {
-
                     throw new Error(
                         `Invalid stock for "${valueName}" in "${optionName}".`
                     );
-
                 }
-
             }
 
             cleanedValues.push({
-
-                name:
-                    valueName,
-
-                price:
-                    valuePrice,
-
-                image:
-                    valueImage,
-
-                stock:
-                    valueStock
-
+                name: valueName,
+                price: valuePrice,
+                image: valueImage,
+                stock: valueStock
             });
-
         }
 
         cleanedOptions.push({
-
-            name:
-                optionName,
-
-            values:
-                cleanedValues
-
+            name: optionName,
+            values: cleanedValues
         });
-
     }
 
     return cleanedOptions;
@@ -244,21 +194,6 @@ function cleanProductOptions(options) {
 
 /* =====================================================
 VARIANT STOCK VALIDATION
-
-Example:
-
-{
-    "Color:Black": 5,
-    "Color:Blue": 2
-}
-
-Multiple options:
-
-{
-    "Color:Black|Size:M": 4,
-    "Color:Black|Size:L": 2,
-    "Color:Blue|Size:M": 7
-}
 ===================================================== */
 
 function cleanVariantStock(variantStock) {
@@ -268,20 +203,16 @@ function cleanVariantStock(variantStock) {
         variantStock === null ||
         variantStock === ""
     ) {
-
         return {};
-
     }
 
     if (
         typeof variantStock !== "object" ||
         Array.isArray(variantStock)
     ) {
-
         throw new Error(
             "Variant stock must be an object."
         );
-
     }
 
     const cleaned = {};
@@ -298,23 +229,18 @@ function cleanVariantStock(variantStock) {
             continue;
         }
 
-        const stock =
-            Number(value);
+        const stock = Number(value);
 
         if (
             !Number.isInteger(stock) ||
             stock < 0
         ) {
-
             throw new Error(
                 `Invalid stock for variant "${cleanKey}".`
             );
-
         }
 
-        cleaned[cleanKey] =
-            stock;
-
+        cleaned[cleanKey] = stock;
     }
 
     return cleaned;
@@ -331,9 +257,7 @@ function cleanStock(stock) {
         stock === null ||
         stock === ""
     ) {
-
         return 0;
-
     }
 
     const cleanStockValue =
@@ -343,11 +267,9 @@ function cleanStock(stock) {
         !Number.isInteger(cleanStockValue) ||
         cleanStockValue < 0
     ) {
-
         throw new Error(
             "Stock must be a whole number greater than or equal to 0."
         );
-
     }
 
     return cleanStockValue;
@@ -363,22 +285,16 @@ function createVariantKey(selectedOptions) {
         !Array.isArray(selectedOptions) ||
         selectedOptions.length === 0
     ) {
-
         return "";
-
     }
 
     return selectedOptions
         .map(selection => {
 
             return (
-                String(
-                    selection.name
-                ).trim() +
+                String(selection.name).trim() +
                 ":" +
-                String(
-                    selection.value
-                ).trim()
+                String(selection.value).trim()
             );
 
         })
@@ -388,15 +304,6 @@ function createVariantKey(selectedOptions) {
 /* =====================================================
 STOCK HELPERS
 ===================================================== */
-
-/*
- * Gets the stock available for a product variant.
- *
- * If an exact variant exists in variant_stock,
- * that value is used.
- *
- * Otherwise the normal product stock is used.
- */
 
 function getAvailableStock(
     product,
@@ -419,7 +326,6 @@ function getAvailableStock(
     ) {
 
         return {
-
             stock:
                 Number(
                     variantStock[variantKey]
@@ -427,26 +333,17 @@ function getAvailableStock(
 
             type:
                 "variant"
-
         };
-
     }
 
     return {
-
         stock:
             Number(product.stock) || 0,
 
         type:
             "product"
-
     };
-
 }
-
-/*
- * Updates product stock after an order.
- */
 
 async function decreaseProductStock(
     client,
@@ -472,11 +369,9 @@ async function decreaseProductStock(
         productResult.rows[0];
 
     if (!product) {
-
         throw new Error(
             "Product not found."
         );
-
     }
 
     const stockInfo =
@@ -490,20 +385,15 @@ async function decreaseProductStock(
         quantity
     ) {
 
-        if (
-            stockInfo.stock === 0
-        ) {
-
+        if (stockInfo.stock === 0) {
             throw new Error(
                 "Product is out of stock."
             );
-
         }
 
         throw new Error(
             `Only ${stockInfo.stock} left in stock for this product.`
         );
-
     }
 
     const newStock =
@@ -511,8 +401,7 @@ async function decreaseProductStock(
         quantity;
 
     if (
-        stockInfo.type ===
-        "variant"
+        stockInfo.type === "variant"
     ) {
 
         await client.query(`
@@ -529,37 +418,23 @@ async function decreaseProductStock(
                 )
             WHERE id = $3
         `, [
-
             variantKey,
-
             newStock,
-
             productId
-
         ]);
 
-    }
-    else {
+    } else {
 
         await client.query(`
             UPDATE products
             SET stock = $1
             WHERE id = $2
         `, [
-
             newStock,
-
             productId
-
         ]);
-
     }
-
 }
-
-/*
- * Restores stock after cancellation.
- */
 
 async function restoreProductStock(
     client,
@@ -585,9 +460,7 @@ async function restoreProductStock(
         productResult.rows[0];
 
     if (!product) {
-
         return;
-
     }
 
     const variantStock =
@@ -628,22 +501,15 @@ async function restoreProductStock(
                 )
             WHERE id = $3
         `, [
-
             variantKey,
-
             newStock,
-
             productId
-
         ]);
 
-    }
-    else {
+    } else {
 
         const currentStock =
-            Number(
-                product.stock
-            ) || 0;
+            Number(product.stock) || 0;
 
         const newStock =
             currentStock +
@@ -654,15 +520,10 @@ async function restoreProductStock(
             SET stock = $1
             WHERE id = $2
         `, [
-
             newStock,
-
             productId
-
         ]);
-
     }
-
 }
 
 /* =====================================================
@@ -698,6 +559,20 @@ async function initDatabase() {
             image TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
+    `);
+
+    /* ================= PRODUCT ACTIVE STATUS ================= */
+
+    await pool.query(`
+        ALTER TABLE products
+        ADD COLUMN IF NOT EXISTS active INTEGER
+        DEFAULT 1
+    `);
+
+    await pool.query(`
+        UPDATE products
+        SET active = 1
+        WHERE active IS NULL
     `);
 
     /* ================= PRODUCT OPTIONS ================= */
@@ -830,7 +705,6 @@ async function initDatabase() {
     console.log(
         "PostgreSQL database initialized successfully."
     );
-
 }
 
 /* =====================================================
@@ -864,7 +738,6 @@ async function requireAdmin(
             message:
                 "Admin login is required."
         });
-
     }
 
     try {
@@ -891,7 +764,6 @@ async function requireAdmin(
                 message:
                     "Admin account could not be verified."
             });
-
         }
 
         if (
@@ -902,7 +774,6 @@ async function requireAdmin(
                 message:
                     "Access denied. Admin permission required."
             });
-
         }
 
         req.admin =
@@ -918,9 +789,7 @@ async function requireAdmin(
             message:
                 "Could not verify admin account."
         });
-
     }
-
 }
 
 /* =====================================================
@@ -939,17 +808,13 @@ app.post(
                 message:
                     "Please select an image."
             });
-
         }
 
         try {
 
             const result =
                 await new Promise(
-                    (
-                        resolve,
-                        reject
-                    ) => {
+                    (resolve, reject) => {
 
                         const stream =
                             cloudinary
@@ -968,30 +833,17 @@ app.post(
                                         result
                                     ) => {
 
-                                        if (
-                                            error
-                                        ) {
-
-                                            reject(
-                                                error
-                                            );
-
+                                        if (error) {
+                                            reject(error);
+                                        } else {
+                                            resolve(result);
                                         }
-                                        else {
-
-                                            resolve(
-                                                result
-                                            );
-
-                                        }
-
                                     }
                                 );
 
                         stream.end(
                             req.file.buffer
                         );
-
                     }
                 );
 
@@ -1002,7 +854,6 @@ app.post(
 
                 imageUrl:
                     result.secure_url
-
             });
 
         } catch (error) {
@@ -1016,14 +867,12 @@ app.post(
                 message:
                     "Could not upload product image."
             });
-
         }
-
     }
 );
 
 /* =====================================================
-GET PRODUCTS
+GET CUSTOMER PRODUCTS
 ===================================================== */
 
 app.get(
@@ -1053,8 +902,13 @@ app.get(
                         COALESCE(
                             variant_stock,
                             '{}'::jsonb
-                        ) AS variant_stock
+                        ) AS variant_stock,
+                        COALESCE(
+                            active,
+                            1
+                        ) AS active
                     FROM products
+                    WHERE COALESCE(active, 1) = 1
                     ORDER BY id ASC
                 `);
 
@@ -1070,9 +924,7 @@ app.get(
                 message:
                     "Could not load products."
             });
-
         }
-
     }
 );
 
@@ -1101,7 +953,6 @@ app.post(
                 message:
                     "Please fill in all required fields."
             });
-
         }
 
         try {
@@ -1125,17 +976,12 @@ app.post(
                     ($1, $2, $3, $4)
                     RETURNING id
                 `, [
-
                     name.trim(),
-
-                    email.trim(),
-
+                    email.trim().toLowerCase(),
                     phone
                         ? phone.trim()
                         : null,
-
                     hashedPassword
-
                 ]);
 
             res.status(201).json({
@@ -1145,7 +991,6 @@ app.post(
 
                 userId:
                     result.rows[0].id
-
             });
 
         } catch (error) {
@@ -1158,7 +1003,6 @@ app.post(
                     message:
                         "That email is already registered."
                 });
-
             }
 
             console.error(error);
@@ -1167,9 +1011,7 @@ app.post(
                 message:
                     "Something went wrong."
             });
-
         }
-
     }
 );
 
@@ -1195,7 +1037,6 @@ app.post(
                 message:
                     "Please enter your email and password."
             });
-
         }
 
         try {
@@ -1225,7 +1066,6 @@ app.post(
                     message:
                         "Invalid email or password."
                 });
-
             }
 
             const passwordMatches =
@@ -1240,7 +1080,6 @@ app.post(
                     message:
                         "Invalid email or password."
                 });
-
             }
 
             res.json({
@@ -1263,11 +1102,8 @@ app.post(
                         user.phone || "",
 
                     role:
-                        user.role ||
-                        "customer"
-
+                        user.role || "customer"
                 }
-
             });
 
         } catch (error) {
@@ -1278,9 +1114,7 @@ app.post(
                 message:
                     "Something went wrong."
             });
-
         }
-
     }
 );
 
@@ -1302,16 +1136,13 @@ app.post(
                 message:
                     "Email address is required."
             });
-
         }
 
         try {
 
             const result =
                 await pool.query(`
-                    SELECT
-                        id,
-                        email
+                    SELECT id, email
                     FROM users
                     WHERE LOWER(email) =
                         LOWER($1)
@@ -1328,7 +1159,6 @@ app.post(
                     message:
                         "No account found with that email."
                 });
-
             }
 
             res.json({
@@ -1344,9 +1174,7 @@ app.post(
                 message:
                     "Could not check account."
             });
-
         }
-
     }
 );
 
@@ -1372,7 +1200,6 @@ app.post(
                 message:
                     "Email and new password are required."
             });
-
         }
 
         if (
@@ -1383,7 +1210,6 @@ app.post(
                 message:
                     "Password must be at least 6 characters."
             });
-
         }
 
         try {
@@ -1407,7 +1233,6 @@ app.post(
                     message:
                         "No account found with that email."
                 });
-
             }
 
             const hashedPassword =
@@ -1421,11 +1246,8 @@ app.post(
                 SET password = $1
                 WHERE id = $2
             `, [
-
                 hashedPassword,
-
                 user.id
-
             ]);
 
             res.json({
@@ -1441,9 +1263,7 @@ app.post(
                 message:
                     "Could not reset password."
             });
-
         }
-
     }
 );
 
@@ -1478,7 +1298,6 @@ app.post(
                 message:
                     "User, customer information and order items are required."
             });
-
         }
 
         if (
@@ -1490,18 +1309,14 @@ app.post(
                 message:
                     "Delivery address and city are required."
             });
-
         }
 
         const client =
             await pool.connect();
 
-        let transactionStarted =
-            false;
+        let transactionStarted = false;
 
         try {
-
-            /* ================= USER CHECK ================= */
 
             const userResult =
                 await client.query(`
@@ -1520,27 +1335,17 @@ app.post(
                     message:
                         "User account could not be verified."
                 });
-
             }
 
-            await client.query(
-                "BEGIN"
-            );
+            await client.query("BEGIN");
 
-            transactionStarted =
-                true;
+            transactionStarted = true;
 
             let total = 0;
-
             const orderItems = [];
 
-            /* =================================================
-            PROCESS EACH ORDER ITEM
-            ================================================= */
-
             for (
-                const item
-                of items
+                const item of items
             ) {
 
                 if (
@@ -1552,15 +1357,10 @@ app.post(
                     throw new Error(
                         "Invalid order item."
                     );
-
                 }
 
                 const quantity =
-                    Number(
-                        item.quantity
-                    );
-
-                /* ================= PRODUCT LOCK ================= */
+                    Number(item.quantity);
 
                 const productResult =
                     await client.query(`
@@ -1571,7 +1371,8 @@ app.post(
                             image,
                             options,
                             stock,
-                            variant_stock
+                            variant_stock,
+                            active
                         FROM products
                         WHERE id = $1
                         FOR UPDATE
@@ -1583,30 +1384,30 @@ app.post(
                     productResult.rows[0];
 
                 if (!product) {
-
                     throw new Error(
                         "Product not found."
                     );
+                }
 
+                if (
+                    Number(product.active) !== 1
+                ) {
+                    throw new Error(
+                        `${product.name} is currently unavailable.`
+                    );
                 }
 
                 const productOptions =
-                    Array.isArray(
-                        product.options
-                    )
+                    Array.isArray(product.options)
                         ? product.options
                         : [];
 
                 const selectedOptions =
-                    Array.isArray(
-                        item.selectedOptions
-                    )
+                    Array.isArray(item.selectedOptions)
                         ? item.selectedOptions
                         : [];
 
                 const cleanedSelections = [];
-
-                /* ================= SIMPLE PRODUCT ================= */
 
                 if (
                     productOptions.length === 0
@@ -1619,12 +1420,8 @@ app.post(
                         throw new Error(
                             `Product "${product.name}" does not have selectable options.`
                         );
-
                     }
-
                 }
-
-                /* ================= VALIDATE OPTIONS ================= */
 
                 for (
                     const selection
@@ -1640,7 +1437,6 @@ app.post(
                         throw new Error(
                             "Invalid product option selection."
                         );
-
                     }
 
                     const optionName =
@@ -1671,7 +1467,6 @@ app.post(
                         throw new Error(
                             `Invalid option "${optionName}" for ${product.name}.`
                         );
-
                     }
 
                     const optionValue =
@@ -1696,22 +1491,15 @@ app.post(
                         throw new Error(
                             `Invalid value "${valueName}" for ${optionName}.`
                         );
-
                     }
 
                     cleanedSelections.push({
-
                         name:
                             productOption.name,
-
                         value:
                             optionValue.name
-
                     });
-
                 }
-
-                /* ================= REQUIRE ALL OPTIONS ================= */
 
                 if (
                     productOptions.length > 0
@@ -1741,14 +1529,9 @@ app.post(
                             throw new Error(
                                 `Please select ${productOption.name} for ${product.name}.`
                             );
-
                         }
-
                     }
-
                 }
-
-                /* ================= VARIANT KEY ================= */
 
                 let variantKey =
                     String(
@@ -1764,15 +1547,10 @@ app.post(
                         createVariantKey(
                             cleanedSelections
                         );
-
                 }
 
-                /* ================= PRICE + IMAGE ================= */
-
                 let finalPrice =
-                    Number(
-                        product.price
-                    );
+                    Number(product.price);
 
                 let finalImage =
                     product.image || "";
@@ -1840,9 +1618,7 @@ app.post(
                                 Math.round(
                                     optionPrice
                                 );
-
                         }
-
                     }
 
                     if (
@@ -1853,12 +1629,8 @@ app.post(
                             String(
                                 optionValue.image
                             ).trim();
-
                     }
-
                 }
-
-                /* ================= STOCK ================= */
 
                 const stockInfo =
                     getAvailableStock(
@@ -1878,22 +1650,16 @@ app.post(
                         throw new Error(
                             `${product.name} is out of stock.`
                         );
-
                     }
 
                     throw new Error(
                         `Only ${stockInfo.stock} left in stock for ${product.name}.`
                     );
-
                 }
-
-                /* ================= TOTAL ================= */
 
                 total +=
                     finalPrice *
                     quantity;
-
-                /* ================= DECREASE STOCK ================= */
 
                 await decreaseProductStock(
                     client,
@@ -1901,8 +1667,6 @@ app.post(
                     variantKey,
                     quantity
                 );
-
-                /* ================= SAVE ITEM ================= */
 
                 orderItems.push({
 
@@ -1926,24 +1690,14 @@ app.post(
 
                     productImage:
                         finalImage
-
                 });
-
             }
-
-            /* =================================================
-            ORDER NUMBER
-            ================================================= */
 
             const orderNumber =
                 "KM" +
                 Date.now()
                     .toString()
                     .slice(-8);
-
-            /* =================================================
-            CREATE ORDER
-            ================================================= */
 
             const orderResult =
                 await client.query(`
@@ -1975,44 +1729,24 @@ app.post(
                     )
                     RETURNING id
                 `, [
-
                     orderNumber,
-
                     userId,
-
                     customerName,
-
-                    customerEmail ||
-                        null,
-
-                    customerPhone ||
-                        null,
-
+                    customerEmail || null,
+                    customerPhone || null,
                     deliveryAddress,
-
                     city,
-
                     total,
-
                     "Order Received",
-
-                    paymentMethod ||
-                        "Bank Transfer",
-
+                    paymentMethod || "Bank Transfer",
                     "Payment Pending"
-
                 ]);
 
             const orderId =
                 orderResult.rows[0].id;
 
-            /* =================================================
-            CREATE ORDER ITEMS
-            ================================================= */
-
             for (
-                const item
-                of orderItems
+                const item of orderItems
             ) {
 
                 await client.query(`
@@ -2037,37 +1771,22 @@ app.post(
                         $8
                     )
                 `, [
-
                     orderId,
-
                     item.productId,
-
                     item.productName,
-
                     item.price,
-
                     item.quantity,
-
                     JSON.stringify(
                         item.selectedOptions
                     ),
-
-                    item.variantKey ||
-                        null,
-
-                    item.productImage ||
-                        null
-
+                    item.variantKey || null,
+                    item.productImage || null
                 ]);
-
             }
 
-            await client.query(
-                "COMMIT"
-            );
+            await client.query("COMMIT");
 
-            transactionStarted =
-                false;
+            transactionStarted = false;
 
             res.status(201).json({
 
@@ -2088,32 +1807,20 @@ app.post(
 
                 paymentStatus:
                     "Payment Pending"
-
             });
 
         } catch (error) {
 
-            if (
-                transactionStarted
-            ) {
+            if (transactionStarted) {
 
                 try {
-
-                    await client.query(
-                        "ROLLBACK"
-                    );
-
-                } catch (
-                    rollbackError
-                ) {
-
+                    await client.query("ROLLBACK");
+                } catch (rollbackError) {
                     console.error(
                         "Rollback failed:",
                         rollbackError
                     );
-
                 }
-
             }
 
             console.error(
@@ -2122,25 +1829,16 @@ app.post(
             );
 
             const expectedErrors = [
-
                 "Invalid order item.",
-
                 "Product not found.",
-
                 "Invalid product option selection.",
-
                 "does not have selectable options.",
-
                 "Invalid option",
-
                 "Invalid value",
-
                 "Please select",
-
                 "out of stock.",
-
-                "left in stock for"
-
+                "left in stock for",
+                "currently unavailable"
             ];
 
             const isExpectedError =
@@ -2151,17 +1849,12 @@ app.post(
                         )
                 );
 
-            if (
-                isExpectedError
-            ) {
+            if (isExpectedError) {
 
                 return res.status(400).json({
-
                     message:
                         error.message
-
                 });
-
             }
 
             res.status(500).json({
@@ -2172,9 +1865,7 @@ app.post(
         } finally {
 
             client.release();
-
         }
-
     }
 );
 
@@ -2196,7 +1887,6 @@ app.get(
                 message:
                     "User ID is required."
             });
-
         }
 
         try {
@@ -2231,8 +1921,7 @@ app.get(
             const ordersWithItems = [];
 
             for (
-                const order
-                of orders
+                const order of orders
             ) {
 
                 const itemsResult =
@@ -2253,14 +1942,10 @@ app.get(
                     ]);
 
                 ordersWithItems.push({
-
                     ...order,
-
                     items:
                         itemsResult.rows
-
                 });
-
             }
 
             res.json(
@@ -2275,9 +1960,7 @@ app.get(
                 message:
                     "Could not load orders."
             });
-
         }
-
     }
 );
 
@@ -2299,7 +1982,6 @@ app.get(
                 message:
                     "User ID is required."
             });
-
         }
 
         try {
@@ -2325,11 +2007,8 @@ app.get(
                     WHERE id = $1
                     AND user_id = $2
                 `, [
-
                     req.params.id,
-
                     userId
-
                 ]);
 
             const order =
@@ -2341,7 +2020,6 @@ app.get(
                     message:
                         "Order not found."
                 });
-
             }
 
             const itemsResult =
@@ -2368,7 +2046,6 @@ app.get(
 
                 items:
                     itemsResult.rows
-
             });
 
         } catch (error) {
@@ -2379,9 +2056,7 @@ app.get(
                 message:
                     "Could not load order."
             });
-
         }
-
     }
 );
 
@@ -2404,21 +2079,17 @@ app.post(
                 message:
                     "User ID is required."
             });
-
         }
 
         if (
             !paymentReference ||
-            !String(
-                paymentReference
-            ).trim()
+            !String(paymentReference).trim()
         ) {
 
             return res.status(400).json({
                 message:
                     "Payment reference is required."
             });
-
         }
 
         try {
@@ -2433,11 +2104,8 @@ app.post(
                     WHERE id = $1
                     AND user_id = $2
                 `, [
-
                     req.params.id,
-
                     userId
-
                 ]);
 
             const order =
@@ -2449,7 +2117,6 @@ app.post(
                     message:
                         "Order not found."
                 });
-
             }
 
             if (
@@ -2461,7 +2128,6 @@ app.post(
                     message:
                         "This payment has already been confirmed."
                 });
-
             }
 
             await pool.query(`
@@ -2473,15 +2139,11 @@ app.post(
                 WHERE id = $2
                 AND user_id = $3
             `, [
-
                 String(
                     paymentReference
                 ).trim(),
-
                 req.params.id,
-
                 userId
-
             ]);
 
             res.json({
@@ -2491,7 +2153,6 @@ app.post(
 
                 paymentStatus:
                     "Payment Submitted"
-
             });
 
         } catch (error) {
@@ -2502,9 +2163,7 @@ app.post(
                 message:
                     "Could not submit payment details."
             });
-
         }
-
     }
 );
 
@@ -2546,8 +2205,7 @@ app.get(
             const ordersWithItems = [];
 
             for (
-                const order
-                of orders
+                const order of orders
             ) {
 
                 const itemsResult =
@@ -2568,14 +2226,10 @@ app.get(
                     ]);
 
                 ordersWithItems.push({
-
                     ...order,
-
                     items:
                         itemsResult.rows
-
                 });
-
             }
 
             res.json(
@@ -2590,9 +2244,7 @@ app.get(
                 message:
                     "Could not load admin orders."
             });
-
         }
-
     }
 );
 
@@ -2632,9 +2284,7 @@ app.get(
                 message:
                     "Could not load users."
             });
-
         }
-
     }
 );
 
@@ -2741,7 +2391,6 @@ app.get(
                             .rows[0]
                             .count
                     )
-
             });
 
         } catch (error) {
@@ -2752,9 +2401,7 @@ app.get(
                 message:
                     "Could not load dashboard information."
             });
-
         }
-
     }
 );
 
@@ -2790,7 +2437,6 @@ app.patch(
                     message:
                         "Order not found."
                 });
-
             }
 
             await pool.query(`
@@ -2815,7 +2461,6 @@ app.patch(
 
                 orderNumber:
                     order.order_number
-
             });
 
         } catch (error) {
@@ -2826,9 +2471,7 @@ app.patch(
                 message:
                     "Could not confirm payment."
             });
-
         }
-
     }
 );
 
@@ -2863,7 +2506,6 @@ app.patch(
                     message:
                         "Order not found."
                 });
-
             }
 
             await pool.query(`
@@ -2888,7 +2530,6 @@ app.patch(
 
                 orderNumber:
                     order.order_number
-
             });
 
         } catch (error) {
@@ -2899,9 +2540,68 @@ app.patch(
                 message:
                     "Could not mark payment as failed."
             });
-
         }
+    }
+);
 
+/* =====================================================
+ADMIN — GET ALL PRODUCTS
+===================================================== */
+
+app.get(
+    "/api/admin/products",
+    requireAdmin,
+    async (req, res) => {
+
+        try {
+
+            const result =
+                await pool.query(`
+                    SELECT
+                        id,
+                        name,
+                        price,
+                        category,
+                        emoji,
+                        description,
+                        image,
+                        COALESCE(
+                            options,
+                            '[]'::jsonb
+                        ) AS options,
+                        COALESCE(
+                            stock,
+                            0
+                        ) AS stock,
+                        COALESCE(
+                            variant_stock,
+                            '{}'::jsonb
+                        ) AS variant_stock,
+                        COALESCE(
+                            active,
+                            1
+                        ) AS active,
+                        created_at
+                    FROM products
+                    ORDER BY id ASC
+                `);
+
+            res.json(
+                result.rows
+            );
+
+        } catch (error) {
+
+            console.error(
+                "Admin products error:",
+                error
+            );
+
+            res.status(500).json({
+                message:
+                    "Could not load admin products."
+            });
+        }
     }
 );
 
@@ -2923,7 +2623,8 @@ app.post(
             image,
             options,
             stock,
-            variantStock
+            variantStock,
+            active
         } = req.body;
 
         if (
@@ -2936,16 +2637,13 @@ app.post(
                 message:
                     "Product name, price and category are required."
             });
-
         }
 
         const productPrice =
             Number(price);
 
         if (
-            !Number.isFinite(
-                productPrice
-            ) ||
+            !Number.isFinite(productPrice) ||
             productPrice < 0
         ) {
 
@@ -2953,7 +2651,6 @@ app.post(
                 message:
                     "Please enter a valid product price."
             });
-
         }
 
         let cleanedOptions;
@@ -2983,8 +2680,14 @@ app.post(
                 message:
                     error.message
             });
-
         }
+
+        const productActive =
+            active === undefined
+                ? 1
+                : Number(active) === 1
+                    ? 1
+                    : 0;
 
         try {
 
@@ -2999,7 +2702,8 @@ app.post(
                         image,
                         options,
                         stock,
-                        variant_stock
+                        variant_stock,
+                        active
                     )
                     VALUES (
                         $1,
@@ -3010,7 +2714,8 @@ app.post(
                         $6,
                         $7::jsonb,
                         $8,
-                        $9::jsonb
+                        $9::jsonb,
+                        $10
                     )
                     RETURNING
                         id,
@@ -3022,36 +2727,23 @@ app.post(
                         image,
                         options,
                         stock,
-                        variant_stock
+                        variant_stock,
+                        active
                 `, [
-
                     name.trim(),
-
-                    Math.round(
-                        productPrice
-                    ),
-
+                    Math.round(productPrice),
                     category.trim(),
-
-                    emoji ||
-                        "",
-
-                    description ||
-                        "",
-
-                    image ||
-                        "",
-
+                    emoji || "",
+                    description || "",
+                    image || "",
                     JSON.stringify(
                         cleanedOptions
                     ),
-
                     cleanedStock,
-
                     JSON.stringify(
                         cleanedVariantStock
-                    )
-
+                    ),
+                    productActive
                 ]);
 
             res.status(201).json({
@@ -3061,7 +2753,6 @@ app.post(
 
                 product:
                     result.rows[0]
-
             });
 
         } catch (error) {
@@ -3072,9 +2763,7 @@ app.post(
                 message:
                     "Could not add product."
             });
-
         }
-
     }
 );
 
@@ -3096,7 +2785,8 @@ app.patch(
             image,
             options,
             stock,
-            variantStock
+            variantStock,
+            active
         } = req.body;
 
         if (
@@ -3109,16 +2799,13 @@ app.patch(
                 message:
                     "Product name, price and category are required."
             });
-
         }
 
         const productPrice =
             Number(price);
 
         if (
-            !Number.isFinite(
-                productPrice
-            ) ||
+            !Number.isFinite(productPrice) ||
             productPrice < 0
         ) {
 
@@ -3126,60 +2813,127 @@ app.patch(
                 message:
                     "Please enter a valid product price."
             });
-
-        }
-
-        let cleanedOptions;
-        let cleanedStock;
-        let cleanedVariantStock;
-
-        try {
-
-            cleanedOptions =
-                cleanProductOptions(
-                    options
-                );
-
-            cleanedStock =
-                cleanStock(
-                    stock
-                );
-
-            cleanedVariantStock =
-                cleanVariantStock(
-                    variantStock
-                );
-
-        } catch (error) {
-
-            return res.status(400).json({
-                message:
-                    error.message
-            });
-
         }
 
         try {
 
-            const existingProductResult =
+            const existingResult =
                 await pool.query(`
-                    SELECT id
+                    SELECT
+                        id,
+                        options,
+                        stock,
+                        variant_stock,
+                        active
                     FROM products
                     WHERE id = $1
                 `, [
                     req.params.id
                 ]);
 
-            if (
-                existingProductResult
-                    .rows.length === 0
-            ) {
+            const existingProduct =
+                existingResult.rows[0];
+
+            if (!existingProduct) {
 
                 return res.status(404).json({
                     message:
                         "Product not found."
                 });
+            }
 
+            /*
+             * IMPORTANT:
+             * The current Admin Products page does not
+             * send options, stock or variantStock when
+             * editing a product.
+             *
+             * Therefore we preserve the existing values
+             * instead of replacing them with empty values.
+             */
+
+            let cleanedOptions;
+
+            if (
+                options === undefined
+            ) {
+
+                cleanedOptions =
+                    Array.isArray(
+                        existingProduct.options
+                    )
+                        ? existingProduct.options
+                        : [];
+
+            } else {
+
+                cleanedOptions =
+                    cleanProductOptions(
+                        options
+                    );
+            }
+
+            let cleanedStock;
+
+            if (
+                stock === undefined
+            ) {
+
+                cleanedStock =
+                    Number(
+                        existingProduct.stock
+                    ) || 0;
+
+            } else {
+
+                cleanedStock =
+                    cleanStock(
+                        stock
+                    );
+            }
+
+            let cleanedVariantStock;
+
+            if (
+                variantStock === undefined
+            ) {
+
+                cleanedVariantStock =
+                    existingProduct.variant_stock &&
+                    typeof existingProduct.variant_stock === "object" &&
+                    !Array.isArray(
+                        existingProduct.variant_stock
+                    )
+                        ? existingProduct.variant_stock
+                        : {};
+
+            } else {
+
+                cleanedVariantStock =
+                    cleanVariantStock(
+                        variantStock
+                    );
+            }
+
+            let productActive;
+
+            if (
+                active === undefined
+            ) {
+
+                productActive =
+                    Number(
+                        existingProduct.active
+                    ) === 0
+                        ? 0
+                        : 1;
+
+            } else {
+
+                productActive =
+                    Number(active) === 1
+                        ? 1
+                        : 0;
             }
 
             await pool.query(`
@@ -3193,39 +2947,25 @@ app.patch(
                     image = $6,
                     options = $7::jsonb,
                     stock = $8,
-                    variant_stock = $9::jsonb
-                WHERE id = $10
+                    variant_stock = $9::jsonb,
+                    active = $10
+                WHERE id = $11
             `, [
-
                 name.trim(),
-
-                Math.round(
-                    productPrice
-                ),
-
+                Math.round(productPrice),
                 category.trim(),
-
-                emoji ||
-                    "",
-
-                description ||
-                    "",
-
-                image ||
-                    "",
-
+                emoji || "",
+                description || "",
+                image || "",
                 JSON.stringify(
                     cleanedOptions
                 ),
-
                 cleanedStock,
-
                 JSON.stringify(
                     cleanedVariantStock
                 ),
-
+                productActive,
                 req.params.id
-
             ]);
 
             const productResult =
@@ -3240,7 +2980,8 @@ app.patch(
                         image,
                         options,
                         stock,
-                        variant_stock
+                        variant_stock,
+                        active
                     FROM products
                     WHERE id = $1
                 `, [
@@ -3254,20 +2995,103 @@ app.patch(
 
                 product:
                     productResult.rows[0]
-
             });
 
         } catch (error) {
 
-            console.error(error);
+            console.error(
+                "Update product error:",
+                error
+            );
 
             res.status(500).json({
                 message:
+                    error.message ||
                     "Could not update product."
             });
-
         }
+    }
+);
 
+/* =====================================================
+ADMIN — HIDE / SHOW PRODUCT
+===================================================== */
+
+app.patch(
+    "/api/admin/products/:id/visibility",
+    requireAdmin,
+    async (req, res) => {
+
+        const {
+            active
+        } = req.body;
+
+        const newActive =
+            Number(active) === 1
+                ? 1
+                : 0;
+
+        try {
+
+            const productResult =
+                await pool.query(`
+                    SELECT
+                        id,
+                        name
+                    FROM products
+                    WHERE id = $1
+                `, [
+                    req.params.id
+                ]);
+
+            const product =
+                productResult.rows[0];
+
+            if (!product) {
+
+                return res.status(404).json({
+                    message:
+                        "Product not found."
+                });
+            }
+
+            await pool.query(`
+                UPDATE products
+                SET active = $1
+                WHERE id = $2
+            `, [
+                newActive,
+                req.params.id
+            ]);
+
+            res.json({
+
+                message:
+                    newActive === 1
+                        ? "Product is visible again."
+                        : "Product hidden successfully.",
+
+                productId:
+                    Number(
+                        req.params.id
+                    ),
+
+                active:
+                    newActive
+            });
+
+        } catch (error) {
+
+            console.error(
+                "Product visibility error:",
+                error
+            );
+
+            res.status(500).json({
+                message:
+                    "Could not change product visibility."
+            });
+        }
     }
 );
 
@@ -3302,7 +3126,6 @@ app.delete(
                     message:
                         "Product not found."
                 });
-
             }
 
             const usedInOrdersResult =
@@ -3329,7 +3152,6 @@ app.delete(
                     message:
                         "This product cannot be deleted because it is already part of an order."
                 });
-
             }
 
             await pool.query(`
@@ -3348,7 +3170,6 @@ app.delete(
                     Number(
                         req.params.id
                     )
-
             });
 
         } catch (error) {
@@ -3359,19 +3180,12 @@ app.delete(
                 message:
                     "Could not delete product."
             });
-
         }
-
     }
 );
 
 /* =====================================================
 ADMIN — UPDATE ORDER STATUS
-
-Cancelling an order restores its stock.
-
-Re-opening a cancelled order reserves
-the stock again.
 ===================================================== */
 
 app.patch(
@@ -3396,7 +3210,6 @@ app.patch(
             "Delivered",
 
             "Cancelled"
-
         ];
 
         if (
@@ -3406,12 +3219,9 @@ app.patch(
         ) {
 
             return res.status(400).json({
-
                 message:
                     "Invalid order status."
-
             });
-
         }
 
         const client =
@@ -3422,14 +3232,10 @@ app.patch(
 
         try {
 
-            await client.query(
-                "BEGIN"
-            );
+            await client.query("BEGIN");
 
             transactionStarted =
                 true;
-
-            /* ================= LOCK ORDER ================= */
 
             const orderResult =
                 await client.query(`
@@ -3448,9 +3254,7 @@ app.patch(
 
             if (!order) {
 
-                await client.query(
-                    "ROLLBACK"
-                );
+                await client.query("ROLLBACK");
 
                 transactionStarted =
                     false;
@@ -3459,21 +3263,16 @@ app.patch(
                     message:
                         "Order not found."
                 });
-
             }
 
             const oldStatus =
                 order.status;
 
-            /* ================= NO CHANGE ================= */
-
             if (
                 oldStatus === status
             ) {
 
-                await client.query(
-                    "COMMIT"
-                );
+                await client.query("COMMIT");
 
                 transactionStarted =
                     false;
@@ -3485,14 +3284,8 @@ app.patch(
 
                     status:
                         status
-
                 });
-
             }
-
-            /* =================================================
-            CANCEL ORDER
-            ================================================= */
 
             if (
                 status === "Cancelled" &&
@@ -3516,34 +3309,18 @@ app.patch(
                     of itemsResult.rows
                 ) {
 
-                    if (
-                        !item.product_id
-                    ) {
+                    if (!item.product_id) {
                         continue;
                     }
 
                     await restoreProductStock(
-
                         client,
-
                         item.product_id,
-
-                        item.variant_key ||
-                            "",
-
-                        Number(
-                            item.quantity
-                        ) || 0
-
+                        item.variant_key || "",
+                        Number(item.quantity) || 0
                     );
-
                 }
-
             }
-
-            /* =================================================
-            REOPEN CANCELLED ORDER
-            ================================================= */
 
             if (
                 oldStatus === "Cancelled" &&
@@ -3562,20 +3339,12 @@ app.patch(
                         req.params.id
                     ]);
 
-                /*
-                 * Check all stock first.
-                 * Because everything is inside a transaction,
-                 * if anything fails, nothing is changed.
-                 */
-
                 for (
                     const item
                     of itemsResult.rows
                 ) {
 
-                    if (
-                        !item.product_id
-                    ) {
+                    if (!item.product_id) {
                         continue;
                     }
 
@@ -3601,20 +3370,16 @@ app.patch(
                         throw new Error(
                             "A product in this order no longer exists."
                         );
-
                     }
 
                     const stockInfo =
                         getAvailableStock(
                             product,
-                            item.variant_key ||
-                                ""
+                            item.variant_key || ""
                         );
 
                     const quantity =
-                        Number(
-                            item.quantity
-                        ) || 0;
+                        Number(item.quantity) || 0;
 
                     if (
                         stockInfo.stock <
@@ -3624,63 +3389,37 @@ app.patch(
                         throw new Error(
                             `Not enough stock to reopen this order. ${product.name} only has ${stockInfo.stock} left.`
                         );
-
                     }
-
                 }
-
-                /*
-                 * Reserve the stock now that
-                 * the order is being reopened.
-                 */
 
                 for (
                     const item
                     of itemsResult.rows
                 ) {
 
-                    if (
-                        !item.product_id
-                    ) {
+                    if (!item.product_id) {
                         continue;
                     }
 
                     await decreaseProductStock(
-
                         client,
-
                         item.product_id,
-
-                        item.variant_key ||
-                            "",
-
-                        Number(
-                            item.quantity
-                        ) || 0
-
+                        item.variant_key || "",
+                        Number(item.quantity) || 0
                     );
-
                 }
-
             }
-
-            /* ================= UPDATE STATUS ================= */
 
             await client.query(`
                 UPDATE orders
                 SET status = $1
                 WHERE id = $2
             `, [
-
                 status,
-
                 req.params.id
-
             ]);
 
-            await client.query(
-                "COMMIT"
-            );
+            await client.query("COMMIT");
 
             transactionStarted =
                 false;
@@ -3692,32 +3431,20 @@ app.patch(
 
                 status:
                     status
-
             });
 
         } catch (error) {
 
-            if (
-                transactionStarted
-            ) {
+            if (transactionStarted) {
 
                 try {
-
-                    await client.query(
-                        "ROLLBACK"
-                    );
-
-                } catch (
-                    rollbackError
-                ) {
-
+                    await client.query("ROLLBACK");
+                } catch (rollbackError) {
                     console.error(
                         "Rollback failed:",
                         rollbackError
                     );
-
                 }
-
             }
 
             console.error(
@@ -3730,15 +3457,12 @@ app.patch(
                 message:
                     error.message ||
                     "Could not update order status."
-
             });
 
         } finally {
 
             client.release();
-
         }
-
     }
 );
 
@@ -3755,8 +3479,7 @@ app.use(
     ) => {
 
         if (
-            error instanceof
-            multer.MulterError
+            error instanceof multer.MulterError
         ) {
 
             if (
@@ -3768,14 +3491,12 @@ app.use(
                     message:
                         "Image is too large. Maximum size is 5MB."
                 });
-
             }
 
             return res.status(400).json({
                 message:
                     "Image upload error."
             });
-
         }
 
         if (error) {
@@ -3789,7 +3510,6 @@ app.use(
                     message:
                         error.message
                 });
-
             }
 
             console.error(error);
@@ -3798,11 +3518,9 @@ app.use(
                 message:
                     "Something went wrong."
             });
-
         }
 
         next(error);
-
     }
 );
 
@@ -3820,7 +3538,6 @@ initDatabase()
                 console.log(
                     `Kaycy Mart server is running on port ${PORT}`
                 );
-
             }
         );
 
@@ -3833,5 +3550,4 @@ initDatabase()
         );
 
         process.exit(1);
-
     });
